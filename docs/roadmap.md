@@ -8,12 +8,12 @@ entrenched guessed priors to unlearn later.
   01/02/05 (+ 04 stub), the source/provenance model, the Override v1.1 rule bundle (base + VEX U
   overlay) with per-datum citations, the loader/validator, and tests. No CLI — deferred until a
   real human-facing workflow needs one.
-- **M1 — Deterministic scoring.** *(Session B — next)* MatchState dataclasses (only the
+- **M1 — Deterministic scoring.** *(Session B — complete)* MatchState dataclasses (only the
   rule-required location predicates — no coordinates, no zone graph) + pure scoring functions +
   golden tests against the manual's own worked examples (p.17) and rule edge cases. → **Gate V1**
-- **M2 — Initial field states.** Encode V5RC and VEX U starting configurations from Appendix A and
-  Figures FO-2/VEXU-1; resolve whether the VEX U on-field layout otherwise matches V5RC's Figure
-  FO-2 (a manual-reading task, not an open question); inventory-sum tests.
+- **M2 — Initial field states.** *(next)* Encode V5RC and VEX U starting configurations from
+  Appendix A and Figures FO-2/VEXU-1; resolve whether the VEX U on-field layout otherwise matches
+  V5RC's Figure FO-2 (a manual-reading task, not an open question); inventory-sum tests.
 - **M3 — Observation schema and labeling protocol.** Define the label vocabulary (see sketch
   below) and labeling protocol; hand-label a pilot set of 5-10 real V5RC Override matches. **If
   multiple labelers are available, run an inter-labeler agreement check on a shared subset. If

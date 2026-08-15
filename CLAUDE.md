@@ -73,13 +73,15 @@ parameter's (future) `transfer_class` field exists to track.
 
 **Session A (M0) complete: rules foundation and provenance.** `src/vexu_sim/sources` and
 `src/vexu_sim/rules` load, compose, and validate the Override v1.1 rule bundle (base + VEX U
-overlay) against official sources. No MatchState, no scoring functions, no CLI, no simulation
-exist yet.
+overlay) against official sources.
 
-**Next: Session B (M1) — deterministic scoring.** MatchState dataclasses + pure scoring functions
-+ golden tests against the manual's own worked examples (p.17) and rule edge cases (Figure SC2-2,
-etc.). Explicitly out of scope for Session B: simulation, event loops, RNG, capability vectors,
-CLI, anything beyond deterministic scoring.
+**Session B (M1) complete: deterministic scoring.** `src/vexu_sim/model` and `src/vexu_sim/scoring`
+implement MatchState + pure scoring functions, validated against the manual's own worked examples
+(p.17) and rule edge cases (Figure SC2-2, etc.). Gate V1 is implemented. No CLI or simulation exist
+yet.
+
+**Next: M2 — Initial field states.** Encode V5RC and VEX U starting configurations from Appendix A
+and Figures FO-2/VEXU-1; inventory-sum tests.
 
 ## Commands
 

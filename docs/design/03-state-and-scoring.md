@@ -2,11 +2,13 @@
 
 Formal description of the state model and scoring engine implemented in `src/vexu_sim/model/`
 and `src/vexu_sim/scoring/`. See `02-game-model.md` for the game rules this evaluates and
-`data/rules/override/v1.1/` for the cited rule data. Every threshold hardcoded in scoring code
-(e.g. "7 Pins Scored") is a verbatim restatement of a cited manual rule, not an invented value --
-`scoring.yaml`/`vexu.yaml` deliberately store these as plain-English `conditions` lists for a
-human to implement faithfully, not as a machine-parseable rule-evaluation spec (see their own
-header comments).
+`data/rules/override/v1.1/` for the cited rule data. Rule-defined numeric/boolean thresholds (e.g.
+Autonomous Win Point Pins-Scored/qualifying-Goals counts) are not hardcoded in scoring code -- they
+are read at runtime from the versioned, cited `RuleBundle` via its `AWPRequirements`
+(`awp_requirements`) accessor and similar effective/composed accessors (see "Program dispatch"
+below). `scoring.yaml`/`vexu.yaml` still carry the original plain-English `conditions` lists
+alongside the structured `requirements` data, so both a human and the scorer can verify the same
+rule the same way.
 
 ## Scope: static scoring, not simulation
 

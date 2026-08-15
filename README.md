@@ -9,7 +9,9 @@ current milestone, and layout, and [`docs/roadmap.md`](docs/roadmap.md) for the 
 
 ## Status
 
-**Session A (M0) — Rules foundation and provenance.** No scoring, simulation, or UI exists yet.
+**Session A (M0) and Session B (M1) are complete.** Rules foundation/provenance (M0) and
+deterministic scoring (M1) both exist. Simulation, empirical/statistical modeling, and UI do not
+exist yet.
 
 ## Setup
 
