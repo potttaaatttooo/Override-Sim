@@ -1,0 +1,24 @@
+# Match period durations and timing rules.
+# program scoping: "v5rc" values are Head-to-Head Match defaults (Section 2/Appendix B);
+# VEX U overrides live in vexu.yaml.
+
+v5rc:
+  autonomous_period_seconds:
+    value: 15
+    sources: [{ref: "manual:v1.1", rule_ids: ["Match table"], page: "B7"}]
+  driver_controlled_period_seconds:
+    value: 105  # 1:45
+    sources: [{ref: "manual:v1.1", rule_ids: ["Match table"], page: "B7"}]
+  endgame_seconds:
+    value: 10
+    description: "The last 10 seconds of a Head-to-Head Match."
+    sources: [{ref: "manual:v1.1", rule_ids: ["Endgame (glossary)"], page: "B4"}]
+
+scoring_grace_period_seconds:
+  value: 5
+  description: >
+    <SC1> All scoring statuses are evaluated after the Match ends. Scores are calculated five
+    seconds after the Match ends, or once all Scoring Objects, Field Elements, and Robots on the
+    Field come to rest, whichever comes first. This is a benefit-of-the-doubt window at the END
+    of the Match only -- it does not apply at the Autonomous Period boundary (see qna:3188).
+  sources: [{ref: "manual:v1.1", rule_ids: ["SC1"], page: 14}]

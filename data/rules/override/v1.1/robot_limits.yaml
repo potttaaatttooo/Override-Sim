@@ -1,0 +1,38 @@
+# Robot starting size, expansion limits, and possession limits relevant to scoring/legality.
+# VEX U sizes differ -- see vexu.yaml <VUR1>.
+
+starting_size:
+  max_inches: [18, 18, 18]
+  description: "No larger than 18\" x 18\" x 18\" at the start of a Match."
+  sources: [{ref: "manual:v1.1", rule_ids: ["SG1a"], page: 19}]
+
+horizontal_expansion_limit:
+  max_footprint_inches: [24, 24]
+  description: >
+    Once the Match begins, Robots may expand horizontally beyond the starting size limit, but can
+    never be larger than 24" wide or 24" long at any point during the Match (must fit within a
+    24" x 24" square horizontal footprint).
+  vexu_applicability: >
+    OPEN QUESTION -- Section 6 does not list <SG2> as modified for VEX U, but VEX U's 24" starting
+    robot (<VUR1>b) would have zero legal horizontal expansion headroom under an unmodified
+    reading, while the 15" robot retains 9" per axis. Both the V5RC Override Q&A (34 entries, all
+    checked) and the VURC Override Q&A (3 entries, all checked) were searched on 2026-08-14 and
+    neither addresses this. See docs/open-questions.md.
+  sources: [{ref: "manual:v1.1", rule_ids: ["SG2a"], page: 20}]
+
+vertical_expansion_limit:
+  max_height_inches: 50
+  description: >
+    Once the Match begins, Robots may expand vertically beyond the starting size limit, but no
+    part of the Robot may exceed an overall height of 50" at any point during the Match. Modified
+    during the Endgame period (see <SG12>, not transcribed -- out of scope for Session A/B).
+  sources: [{ref: "manual:v1.1", rule_ids: ["SG3"], page: 20}]
+
+possession_limit:
+  max_pins: 1
+  max_cups: 1
+  description: >
+    Robots may not have Possession of more than one Pin at once, and may not have Possession of
+    more than one Cup at once. Plowing multiple Scoring Objects is permitted and is not subject to
+    this limit.
+  sources: [{ref: "manual:v1.1", rule_ids: ["SG6"], page: 21}]

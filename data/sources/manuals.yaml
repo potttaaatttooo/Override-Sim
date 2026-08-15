@@ -1,0 +1,23 @@
+# Source records for official VEX Game Manual versions.
+#
+# `program: both` is permitted here because the combined Game Manual governs V5RC play
+# (Sections 1-5) and VEX U play (Section 6) in one document. Rule bundles, observations,
+# parameters, and matches must NOT use `both` -- see CLAUDE.md "Program tagging".
+#
+# `released` is when VEX published the PDF. `effective` is when it governs play. These are
+# read independently everywhere in this codebase; never substitute one for the other.
+
+- id: "manual:v1.1"
+  source_type: manual
+  program: both
+  manual_version: "1.1"
+  released: 2026-08-06
+  effective: 2026-08-13
+  sha256: "336e4661a4d7e96bcb9d57252aecbe75cf6a9e2a117bbbd3e981a6a8c49f03ba"
+  source_url: "https://www.vexrobotics.com/override-manual"
+  retrieved: 2026-08-14
+  local_path: "docs/manuals/override-v1.1.pdf"
+  notes: >
+    v1.1 is the version this project's rule bundle "v1.1" transcribes. Known future versions
+    (not yet released, not yet added): v2.0 (released 2026-09-03, effective 2026-09-10), then
+    v2.1, v2.2, v3.0, v4.0.

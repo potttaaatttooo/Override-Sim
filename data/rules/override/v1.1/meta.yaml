@@ -1,0 +1,13 @@
+# Metadata for the Override v1.1 rule bundle.
+manual_version: "1.1"
+program: both  # base bundle covers V5RC; data/rules/override/v1.1/vexu.yaml overlays VEX U deltas
+source: {ref: "manual:v1.1"}
+transcribed: 2026-08-14
+coverage: >
+  Covers: match periods, scoring point values and Placed/Scored/Owned/Midfield/Autonomous Bonus/
+  Autonomous Win Point criteria, field object inventory and zone definitions, robot starting-size
+  and expansion limits, and possession limits (Sections 2 and 4, and Appendices A/B of the v1.1
+  manual), plus the VEX U Section 6 overlay. Does NOT cover: general/safety/tournament rules
+  (Sections 1, 5), full robot construction rules (R1-R28 in Section 4 beyond SG1-SG3/SG6), or
+  Robot Skills Challenge rules (Section 3) -- none of these are needed by the scoring engine
+  planned for Session B.

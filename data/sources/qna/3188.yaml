@@ -1,0 +1,82 @@
+# Retrieved verbatim from the official VEX V5RC Override Q&A on 2026-08-14.
+# Source: https://events.vex.com/V5RC/2026-2027/QA (PDF export: https://events.vex.com/faqs/51/pdf)
+#
+# This ruling is filed under the V5RC Q&A (it was asked and answered there), but its holding
+# explicitly distinguishes V5RC from VEX U scoring behavior, so `program: both` applies and it
+# is the controlling source for both `<SC7>` (V5RC) and `<VUG5>` (VEX U) on this question.
+
+id: "qna:3188"
+source_type: q_and_a
+program: both
+qna_id: "3188"
+title: "Robots in midfield at end of Autonomous Period"
+source_url: "https://events.vex.com/V5RC/2026-2027/QA"
+pdf_export_url: "https://events.vex.com/faqs/51/pdf"
+answered: 2026-07-17
+retrieved: 2026-08-14
+applies_to_manual_versions: ["1.1"]
+rule_ids: ["SC5", "SC6", "SC7", "SG7", "SG8", "VUG5"]
+status: active
+superseded_by: null
+question: |
+  How would the robots in midfield at end of autonomous period be counted? Shown in the picture
+  illustrated below with 2 Blue robots and 1 Red robot. One Blue robot was contacting the midfield
+  goal and also pushed the other red robot that parked first. Another blue robot crossed the
+  double autonomous line but entered the midfield.
+
+  Per SC5b. A yellow Pin Placed in the Midfield is Owned by the Alliance that ends the Match with a
+  greater number of Robots in the Midfield. As this is not end of the match, yellow pin shall not
+  be counted even with 2 parked Blue vs 1 parked Red.
+
+  Per SC7a, Points for ending the Autonomous Period in the Midfield are not included in the
+  calculation of an Alliance's score for the purposes of determining the Autonomous Bonus. Thus
+  the Yellow pin shall not be counted as owned by Blue Alliance.
+
+  Per SG7, <SG7> Don't cross the Autonomous Line, and don't interfere with your opponents' actions.
+  Are all 3 robots violating?
+
+  Per SG8, <SG8> Engage with the Midfield and/or Autonomous Line during the Autonomous Period at
+  your own risk. In this case, even if the Blue robot entered midfield and pushed the Red robot
+  that has parked ealier time, Per SC8d, no penalty shall be given to Blue Alliance.
+
+  Result 1: No violation, midfield is allowed and autonomous line cross is allowed. With 2 parked
+  blue vs 1 parked Red, Blue allicance won auton and also owned the yellow pin.
+
+  Result 2: No violation, midfield is allowed and autonomous line cross is allowed. Yellow pin is
+  not owned by either Alliance. However, with 2 parked blue vs 1 Red, Blue alliance won the auton
+  bonus points.
+
+  Result 3: All 3 robots violate SG7, thus no Auton bonus will be awarded.
+
+  Result 4: IF the Red robot did not enter the midfield but only the 2 Blue robots, then Red
+  Alliance will receive the 12 AP, given Blue Alliance violating SG7
+
+  Could you clarify the robots in midfield at end of Autonomous Period, not end of match?
+holding: |
+  Concerning your example scenario:
+
+  - Per <SC5> clause B, a yellow Pin Placed in the Midfield is Owned by the Alliance that ends the
+    Match with a greater number of Robots in the Midfield. Since this is not the end of the Match,
+    neither Alliance owns the yellow Pin Placed in the Midfield Goal, regardless of how many Robots
+    from each Alliance are within the Midfield at the end of the Autonomous Period.
+  - Per <SC6>, Robots do not receive credit for being in the Midfield until the end of the Match.
+    Therefore, being within the Midfield at the end of the Autonomous Period has no effect on
+    Autonomous Period scoring calculations.
+  - The actions of the red and blue Robots that made contact in the Midfield are legal. Per <SG8>,
+    Robots engaging with the Midfield or Autonomous Line during the Autonomous Period accept the
+    risk of interaction with other Robots that are also engaging with the Midfield or Autonomous
+    Line. Contact between these two Robots in the Midfield will not be penalized.
+  - The other blue Robot appears as if it would've crossed the Autonomous Line by contacting foam
+    tiles on the red Alliance side, which results in an <SG7> violation for this blue Robot and the
+    Autonomous Bonus being awarded to the red Alliance.
+
+  Note: <SC7> clause A will be revised in the August 6 game manual update to remove potentially
+  misleading language. The purpose of <SC7> clause A is to clarify that scoring methods that rely
+  on Robots being in the Midfield at the end of the Match (e.g., points awarded for Robots being in
+  the Midfield and for Ownership/Scoring of yellow Pins in the Midfield) are not in effect until the
+  end of the Match, and are therefore not included in Autonomous Period scoring calculations for
+  V5RC matches.
+
+  Those scoring methods are only included in Autonomous Period scoring calculations for VEX U
+  matches, due to <VUG5> rule modifications that make these scoring methods "active" at both the
+  end of the Autonomous Period and the end of the Match.

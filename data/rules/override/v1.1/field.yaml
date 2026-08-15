@@ -1,0 +1,66 @@
+# V5RC Override field object inventory and zone definitions.
+# VEX U field setup differs -- see vexu.yaml.
+
+inventory:
+  cups:
+    total: 56
+    breakdown:
+      match_loads_red: 10
+      match_loads_blue: 10
+      start_gray_side_up: 24
+      start_clear_side_up: 12
+    sources: [{ref: "manual:v1.1", rule_ids: ["Field Overview"], page: 8}]
+  pins:
+    total: 63
+    breakdown:
+      red_blue_predetermined: 4
+      red_yellow_preloads: 2
+      red_yellow_match_loads: 10
+      red_yellow_predetermined: 8
+      blue_yellow_preloads: 2
+      blue_yellow_match_loads: 10
+      blue_yellow_predetermined: 8
+      yellow_yellow_match_loads: 2
+      yellow_yellow_predetermined: 17
+    sources: [{ref: "manual:v1.1", rule_ids: ["Field Overview"], page: 8}]
+  goals:
+    total: 9
+    breakdown:
+      alliance_red: 2
+      alliance_blue: 2
+      neutral_short: 4
+      neutral_tall: 1
+    sources: [{ref: "manual:v1.1", rule_ids: ["Field Overview"], page: 8}]
+  toggles:
+    total: 4
+    sources: [{ref: "manual:v1.1", rule_ids: ["Field Overview"], page: 8}]
+  loaders:
+    total: 4
+    description: "Two adjacent to each Alliance Station."
+    sources: [{ref: "manual:v1.1", rule_ids: ["Field Overview"], page: 8}]
+
+zones:
+  quadrant:
+    description: >
+      One of four designated triangular areas of the Field. Each Quadrant contains two Goals and
+      one Toggle. Defined by the outer edges of the white tape lines, the Field Perimeter, and the
+      colored tape defining the Load Zones. Each Quadrant is described as red or blue based on the
+      Alliance-colored Goal it includes.
+    sources: [{ref: "manual:v1.1", rule_ids: ["Quadrant (glossary)"], page: "B9"}]
+  midfield:
+    description: >
+      The square-shaped central area of the Field in which Robots attempt to end the Match to
+      score additional points. An infinitely tall three-dimensional volume bounded by the inner
+      edges of the white tape line square. Can be entered by all Robots during the Autonomous
+      Period.
+    sources: [{ref: "manual:v1.1", rule_ids: ["Midfield (glossary)"], page: "B7"}]
+  load_zone:
+    description: >
+      An infinitely tall three-dimensional volume bounded by the inner edges of the Field
+      Perimeter and the outer edges of the red or blue tape lines surrounding each Loader.
+    sources: [{ref: "manual:v1.1", rule_ids: ["Load Zone (glossary)"], page: "B6"}]
+  autonomous_line:
+    description: >
+      The pair of white tape lines that run diagonally across the Field and around the Midfield,
+      and the space between those lines.
+    sources: [{ref: "manual:v1.1", rule_ids: ["Autonomous Line (glossary)"], page: "B2"}]

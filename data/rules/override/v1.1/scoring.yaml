@@ -1,0 +1,114 @@
+# Point values and the Placed / Scored / Owned / Midfield / Autonomous Bonus / Autonomous Win
+# Point criteria. Criteria are recorded as ordered lists of plain-English conditions, each with
+# its own citation, for a human (and Session B's hand-written scoring code) to implement
+# faithfully. This is deliberately NOT a rule-evaluation engine -- see CLAUDE.md.
+
+point_values:
+  scored_pin_half_alliance_colored:
+    points: 5
+    sources: [{ref: "manual:v1.1", rule_ids: ["Scoring table"], page: 14}]
+  scored_pin_half_yellow:
+    points: 10
+    sources: [{ref: "manual:v1.1", rule_ids: ["Scoring table"], page: 14}]
+  robot_ending_in_midfield:
+    points: 8
+    sources: [{ref: "manual:v1.1", rule_ids: ["Scoring table", "SC6"], page: 14}]
+  autonomous_bonus:
+    points: 12
+    tie_points_each: 6
+    sources: [{ref: "manual:v1.1", rule_ids: ["Scoring table", "SC7"], page: 14}]
+
+# <SC2> Placed Scoring Object criteria.
+placed_criteria:
+  pin:
+    conditions:
+      - "The Pin is partially or entirely nested with a Goal, or with a Cup that is partially or entirely nested with another Placed Pin."
+      - "Each Goal and/or each half of a Cup nested with that Pin contains a maximum of one Pin half."
+    sources: [{ref: "manual:v1.1", rule_ids: ["SC2a"], page: 14}]
+  cup:
+    conditions:
+      - "The Cup is partially or entirely nested with a Placed Pin."
+    sources: [{ref: "manual:v1.1", rule_ids: ["SC2b"], page: 14}]
+  nested_definition: >
+    "Nested" means one half of a Pin is partially or completely contained within the inner volume
+    of a Cup -- the Pin breaks an imaginary plane at the Cup's opening. Robot contact does not
+    matter for Placed status: a Robot contacting or Possessing a Pin that still meets the Placed
+    criteria does not negate Placed status, provided no other rules are broken (particularly SG6).
+  sources: [{ref: "manual:v1.1", rule_ids: ["SC2 (red box)"], page: 15}]
+
+# <SC3> Scored Pin half criteria.
+scored_criteria:
+  description: >
+    Each Pin consists of two halves. Each Placed Pin can have zero, one, or two Scored halves. To
+    count as Scored for the corresponding Alliance, the half of the Placed Pin must remain fully
+    visible (i.e. cannot be partially or fully nested inside the opaque half of a Cup).
+  conditions:
+    - "Each visible red half of a Placed Pin counts as a Scored red Pin, earning points for the red Alliance."
+    - "Each visible blue half of a Placed Pin counts as a Scored blue Pin, earning points for the blue Alliance."
+    - "Each visible yellow half of a Placed and Owned Pin counts as a Scored yellow Pin, earning points for the Alliance that Owns the Pin."
+  sources: [{ref: "manual:v1.1", rule_ids: ["SC3"], page: 15}]
+
+# <SC4> Toggle set-to-color criteria.
+toggle_set_to_color_criteria:
+  conditions:
+    - "The Toggle must be fully seated, such that there is a face of the Toggle in contact and parallel with its mounts on the Field Perimeter at rest."
+    - "The Toggle is not in contact with a Robot from either Alliance."
+  default: >
+    If a Toggle is not considered set to a color, it is a neutral (yellow) Toggle by default, and
+    neither Alliance receives Ownership of the yellow Pins Placed in that Quadrant.
+  sources: [{ref: "manual:v1.1", rule_ids: ["SC4"], page: 15}]
+
+# <SC5> Yellow Pin ownership criteria.
+yellow_pin_ownership_criteria:
+  by_quadrant:
+    condition: >
+      A yellow Pin Placed in a Quadrant is Owned by an Alliance if the Toggle in that Quadrant is
+      set to the Alliance's color. If the Toggle is set to yellow, Placed yellow Pins in that
+      Quadrant are not Owned and do not score points.
+    sources: [{ref: "manual:v1.1", rule_ids: ["SC5a"], page: 16}]
+  by_midfield:
+    condition: >
+      A yellow Pin Placed in the Midfield is Owned by the Alliance that ends the Match with a
+      greater number of Robots in the Midfield. If both Alliances end the Match with an equal
+      number of Robots in the Midfield, yellow Pins Placed in the Midfield are not Owned and do
+      not score points.
+    end_of_match_only: true
+    qna_clarification: >
+      Per qna:3188, Robots do not receive credit for being in the Midfield, and Midfield yellow
+      Pin ownership is not evaluated, until the END of the Match -- not at the end of the
+      Autonomous Period, for V5RC. See autonomous_bonus_evaluation.vexu_note below for the VEX U
+      difference.
+    sources: [{ref: "manual:v1.1", rule_ids: ["SC5b"], page: 16}, {ref: "qna:3188"}]
+
+# <SC6> Robot ending in Midfield.
+robot_ending_in_midfield_criteria:
+  condition: "A Robot counts as ending in the Midfield if the Robot is at least partially within the Midfield at the end of the Match."
+  end_of_match_only: true
+  sources: [{ref: "manual:v1.1", rule_ids: ["SC6"], page: 18}]
+
+# <SC7> Autonomous Bonus.
+autonomous_bonus_evaluation:
+  timing: "Evaluated immediately after the Autonomous Period ends."
+  v5rc_exclusions: >
+    Scoring methods that rely on Robots' end-of-MATCH positioning in the Midfield (Robots ending
+    in the Midfield, and Ownership of yellow Pins in the Midfield) are NOT included in Autonomous
+    Period scoring calculations for V5RC. Per qna:3188, this is because those statuses are not
+    evaluated until the end of the Match, and the Autonomous Period is not the end of the Match.
+  vexu_note: >
+    VEX U evaluates these same scoring methods at the end of the Autonomous Period as well as at
+    the end of the Match, per <VUG5> (see vexu.yaml). Confirmed by qna:3188's holding.
+  tie_rule: "If the Autonomous Period ends in a tie, including a zero-to-zero tie, each Alliance receives an Autonomous Bonus of six (6) points."
+  violation_rule: >
+    Any Violation (Major or Minor) committed during the Autonomous Period results in the
+    Autonomous Bonus being automatically awarded to the opposing Alliance. If both Alliances
+    commit Violations during the Autonomous Period, no Autonomous Bonus is awarded.
+  sources: [{ref: "manual:v1.1", rule_ids: ["SC7"], page: 18}, {ref: "qna:3188"}]
+
+# <SC8> Autonomous Win Point -- V5RC criteria. VEX U has its own criteria: see vexu.yaml <VUG6>.
+autonomous_win_point_criteria_v5rc:
+  conditions:
+    - "At least seven (7) Pins Scored for your Alliance. (Does not include Pins Scored in Quadrants on the opposing side of the Autonomous Line.)"
+    - "At least three (3) Goals each contain at least two (2) Pins Scored for your Alliance. (Does not include Goals in Quadrants on the opposing side of the Autonomous Line.)"
+    - "Neither Robot is contacting the Field Perimeter."
+  no_violations_during_autonomous: true
+  sources: [{ref: "manual:v1.1", rule_ids: ["SC8"], page: 18}]

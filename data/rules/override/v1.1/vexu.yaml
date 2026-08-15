@@ -1,0 +1,102 @@
+# VEX U (Section 6) overlay on the base Override v1.1 rules. All standard rules apply except the
+# modifications listed here (per the manual's own framing, Section 6 p.71). The rules loader
+# composes base + this overlay and reports exactly which rule IDs were overridden -- see
+# `overrides_base_rule_ids` below, which must list every base rule ID this file changes the
+# effective meaning of.
+
+program: vexu
+
+overrides_base_rule_ids:
+  - "SG1a"   # starting size -> VUR1
+  - "SG2a"   # horizontal expansion -> unresolved applicability, see robot_limits.yaml note
+  - "SC7"    # autonomous bonus evaluation -> VUG5 changes what's included
+  - "SC8"    # autonomous win point criteria -> VUG6 replaces entirely
+  - "SG11"   # match load timing/availability -> VUG4
+  - "SG13"   # load zone protection -> VUG7
+  - "periods.v5rc.autonomous_period_seconds"  # -> VUT4
+  - "periods.v5rc.driver_controlled_period_seconds"  # -> VUT5
+
+robot_sizes:
+  robot_a_max_inches: [24, 24, 24]
+  robot_b_max_inches: [15, 15, 15]
+  description: "Teams may use two (2) Robots in each Match: one no larger than 24x24x24, one no larger than 15x15x15, at the start of the Match."
+  sources: [{ref: "manual:v1.1", rule_ids: ["VUR1b", "VUR1c"], page: 79}]
+
+tournament_format:
+  match_type: "1v1"
+  robots_per_team: 2
+  description: "Instead of a 2-Team Alliance format, VURC Head-to-Head Matches are played 1-Team vs. 1-Team. Each Team uses two Robots in each Match."
+  sources: [{ref: "manual:v1.1", rule_ids: ["VUT1"], page: 78}]
+
+periods:
+  autonomous_period_seconds:
+    value: 30
+    sources: [{ref: "manual:v1.1", rule_ids: ["VUT4"], page: 78}]
+  driver_controlled_period_seconds:
+    value: 90
+    description: "Immediately follows the Autonomous Period."
+    sources: [{ref: "manual:v1.1", rule_ids: ["VUT5"], page: 78}]
+
+field_setup:
+  description: >
+    Only the Midfield Goal begins the Match with a yellow/yellow Pin Placed in it (all other
+    Goals begin empty). VEX GPS code strip must be installed. Verifying whether the remaining
+    on-field layout otherwise matches the V5RC Figure FO-2 configuration is deferred to M2 (see
+    docs/roadmap.md) -- not performed in Session A/B.
+  match_loads:
+    red_alliance: {cups: 10, red_yellow_pins: 10, yellow_yellow_pins: 3}
+    blue_alliance: {cups: 10, blue_yellow_pins: 10, yellow_yellow_pins: 3}
+    sources: [{ref: "manual:v1.1", rule_ids: ["Rule Modifications: Field Setup"], page: 72}]
+
+match_load_availability:
+  description: >
+    Drive Team Members may introduce Match Load Scoring Objects (both Pins and Cups) into the
+    Loaders adjacent to their Alliance Station during BOTH the Autonomous Period and the Driver
+    Controlled Period. (V5RC restricts this to the Driver Controlled Period only, per <SG11>c.)
+    The v1.1 manual text already says "Scoring Objects" rather than "Pins," reflecting the
+    qna:3134 correction from an earlier manual version.
+  sources: [{ref: "manual:v1.1", rule_ids: ["VUG4"], page: 75}, {ref: "qna:3134"}]
+
+autonomous_bonus_scoring:
+  description: >
+    Unlike V5RC (see scoring.yaml autonomous_bonus_evaluation.v5rc_exclusions), VEX U INCLUDES
+    the following in Autonomous Period scoring calculations for determining the Autonomous Bonus:
+  included:
+    - "Ownership and Scoring of yellow Pins in the Midfield: a yellow Pin Placed in the Midfield is Owned by the Alliance that ends the AUTONOMOUS PERIOD (not just the Match) with a greater number of Robots in the Midfield."
+    - "Scoring of Robots ending in the Midfield: a Robot counts as ending in the Midfield if it is at least partially within the Midfield at the end of the AUTONOMOUS PERIOD."
+  sources: [{ref: "manual:v1.1", rule_ids: ["VUG5"], page: 75}, {ref: "qna:3188"}]
+
+autonomous_win_point_criteria:
+  description: "Replaces the V5RC <SC8> criteria entirely for VEX U (see scoring.yaml autonomous_win_point_criteria_v5rc)."
+  conditions:
+    - "At least twelve (12) Pins Scored for your Alliance. (Does not include Pins Scored in Quadrants on the opposing side of the Autonomous Line.)"
+    - "At least four (4) Goals each contain at least two (2) Pins Scored for your Alliance. (Does not include Goals in Quadrants on the opposing side of the Autonomous Line.)"
+    - "Neither Robot is contacting the Field Perimeter."
+    - "At least one (1) Robot is within the Midfield."
+  alliance_note: >
+    In VEX U, "Alliance" is redefined (see ranking_and_alliance below) as the Team's own two
+    Robots, so "your Alliance" in this criteria list means the Team's own pair.
+  no_violations_during_autonomous: true
+  sources: [{ref: "manual:v1.1", rule_ids: ["VUG6"], page: 75}]
+
+load_zone_protection:
+  description: >
+    Load Zone protections (<SG13>) apply during BOTH the Autonomous Period and the Driver
+    Controlled Period in VEX U. (V5RC applies this only during the Driver Controlled Period.)
+  sources: [{ref: "manual:v1.1", rule_ids: ["VUG7"], page: 75}]
+
+ranking_and_alliance:
+  description: >
+    VEX U Section 6 redefines "Alliance" as "a grouping of two (2) Robots from the same Team that
+    have been chosen by the Students to play together during a given Match" -- i.e. a Team's own
+    pair of Robots, not a pairing of two Teams. This resolves how V5RC's Alliance-scoped ranking
+    statistics (Win Points, Autonomous Points, Strength of Schedule Points, and the <T13>
+    tiebreaker order) apply to VEX U's 1v1 format: they apply directly to each Team's own
+    Autonomous Bonus / Match results, unmodified, because "Alliance" already means "the Team" in
+    this program.
+  qualification_matches: "Conducted in the same manner as a V5RC tournament, in the 1v1 format."
+  elimination_matches: "Conducted the same as V5RC eliminations, but without an Alliance Selection step -- one Team emerges as Tournament champion."
+  sources:
+    - {ref: "manual:v1.1", rule_ids: ["VURC Definitions: Alliance"], page: 71}
+    - {ref: "manual:v1.1", rule_ids: ["VUT2", "VUT3"], page: 78}
+    - {ref: "manual:v1.1", rule_ids: ["T13"], page: 63}

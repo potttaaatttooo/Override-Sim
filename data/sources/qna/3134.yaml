@@ -1,0 +1,34 @@
+# Retrieved verbatim from the official VURC (VEX U) Override Q&A on 2026-08-14.
+# Source: https://events.vex.com/VURC/2026-2027/QA (PDF export: https://events.vex.com/faqs/52/pdf)
+
+id: "qna:3134"
+source_type: q_and_a
+program: vexu
+qna_id: "3134"
+title: "Match Loading Cups in Autonomous"
+source_url: "https://events.vex.com/VURC/2026-2027/QA"
+pdf_export_url: "https://events.vex.com/faqs/52/pdf"
+answered: 2026-05-14
+retrieved: 2026-08-14
+applies_to_manual_versions: ["1.1"]
+rule_ids: ["VUG4"]
+status: active
+superseded_by: null
+question: |
+  VUG4 states:
+
+  Different availability of Loaders. Drive Team Members may add Match Load Pins to the Loaders
+  adjacent to their Alliance Station during the Autonomous Period and Driver Controlled Period of
+  the Match.
+
+  Does the specification of Pins imply that Cups may NOT be loaded during the Autonomous Period?
+holding: |
+  The intent of VUG4 is to allow the introduction of both types of Match Load Scoring Objects (Pins
+  and Cups) during the specified periods of the Match. This wording will be corrected in the June 4
+  game manual update.
+notes: >
+  The v1.1 manual text of <VUG4> ("Drive Team Members may introduce Match Load Scoring Objects
+  into the Loaders adjacent to their Alliance Station during the Autonomous Period and Driver
+  Controlled Period of the Match") already reflects this correction -- it says "Scoring Objects,"
+  not "Pins." This ruling is recorded for provenance even though v1.1 already incorporates the fix,
+  since it explains why the wording differs from earlier manual versions.
