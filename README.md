@@ -9,9 +9,9 @@ current milestone, and layout, and [`docs/roadmap.md`](docs/roadmap.md) for the 
 
 ## Status
 
-**Session A (M0) and Session B (M1) are complete.** Rules foundation/provenance (M0) and
-deterministic scoring (M1) both exist. Simulation, empirical/statistical modeling, and UI do not
-exist yet.
+**M0, M1, and M2 are complete.** Rules foundation/provenance (M0), deterministic scoring (M1), and
+official starting Field states (M2) all exist. **M3 (observation schema and labeling) is next.**
+Simulation, empirical/statistical modeling, and UI do not exist yet.
 
 ## Setup
 

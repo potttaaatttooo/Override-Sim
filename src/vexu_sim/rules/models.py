@@ -1,7 +1,12 @@
 """Data model for a composed, validated rule bundle.
 
-A RuleBundle holds no game logic (see CLAUDE.md) -- it is loaded, cited data. Session B's
-scoring module reads a RuleBundle's `.data` to get point values and criteria text.
+A RuleBundle holds no game logic (see CLAUDE.md) -- it is loaded, cited data. Game-logic
+consumers (scoring, field_setup) read the effective/composed accessors below
+(`point_values`, `autonomous_bonus_includes_midfield`, `awp_requirements`,
+`period_seconds`, `match_load_inventory`) rather than `.data` directly, so they never
+need to know whether a value came from the base bundle or the VEX U overlay. `.data`
+itself remains available for provenance-oriented tooling and tests (e.g. citation
+checks) that are about the rule data, not about scoring a Match.
 """
 
 from __future__ import annotations

@@ -22,8 +22,9 @@ observation.
 - Robots are capability vectors, not CAD.
 - A VEX U architecture is a coordinated 24" + 15" robot pair.
 - No ML where deterministic or statistical methods suffice.
-- No vision, video, optimization, or UI until the validation gates in
-  `docs/design/05-data-provenance-and-validation.md` pass.
+- Manual review/labeling of real match video begins in M3. No computer vision or
+  automatic video processing, and no optimization or UI, until their later milestones
+  (`docs/roadmap.md`).
 
 ## The rule-gap workflow
 
@@ -52,6 +53,9 @@ data/parameters/                           WHAT WE MEASURED -- empty until estim
 data/observations/                         WHAT WE SAW -- empty until labeling work
 src/vexu_sim/sources/                      load source records, resolve citations, supersede checks
 src/vexu_sim/rules/                        load + compose + validate rule bundles. No game logic.
+src/vexu_sim/model/                        MatchState dataclasses (Pin/Cup/Goal/Toggle/Robot, etc.)
+src/vexu_sim/scoring/                      pure deterministic scoring functions over a MatchState
+src/vexu_sim/field_setup/                  official V5RC/VEX U starting MatchStates + Match Load inventory
 tests/                                     pytest; fixtures/scoring/ for golden scoring cases
 ```
 

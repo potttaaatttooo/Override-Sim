@@ -11,17 +11,18 @@ No simulation, no coordinates, no robot strategy: every fact here is either quot
 directly from data/rules/override/v1.1/ (field.yaml, vexu.yaml) or derived from
 official Appendix A drawings and the Section 6 field-setup rule text.
 
-Deliberately NOT reconstructed: the exact floor position of the 32 V5RC on-Field
-predetermined Pins that are not one of the 5 Placed at kickoff (4 neutral-short Goals
-+ Midfield). Appendix A's dimensioned "Scoring Object Locations" drawing only
-precisely locates objects at fixed Goal/Toggle mount points; the illustrative Figure
-FO-2 explicitly disclaims precision for everything else ("may highlight or change the
-appearance of certain Field Elements and Scoring Objects to emphasize or clarify
-intent," Field Overview p.8). These 32 Pins (plus all 36 on-Field Cups) are
-represented as on the Field but unplaced (`goal=None`), matching exactly what the
-Field Overview text asserts -- a count and color combination, not a location.
-Reconstructing an exact per-Goal stack topology beyond that would mean inventing
-placements the manual does not state, which CLAUDE.md's rule-gap workflow prohibits.
+Deliberately NOT encoded: the floor position of the 32 V5RC on-Field predetermined
+Pins that are not one of the 5 Placed at kickoff (4 neutral-short Goals + Midfield),
+nor of the 36 on-Field Cups. Official spatial/start-layout information for these DOES
+exist -- Figure FO-2 illustrates them and Appendix A's "Scoring Object Locations"
+drawing (A12) dimensions them precisely, the same way it dimensions Goal/Toggle mount
+points. They are represented as on the Field but unplaced (`goal=None`) here only
+because `MatchState` (M1) is deliberately non-spatial and no current scoring
+predicate needs a coordinate -- see `docs/design/03-state-and-scoring.md`, "What is
+deliberately not represented." Encoding their positions is deferred to the future
+spatial-model milestone (M6, `docs/roadmap.md`), which is the first point a
+coordinate/region has a consumer; see `docs/design/06-starting-field-states.md` for
+the full derivation. This is a deferral, not a gap in the source data.
 """
 
 from __future__ import annotations
