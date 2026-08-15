@@ -160,6 +160,55 @@ def test_period_seconds_effective_view_hides_overlay_storage(sources):
     assert vexu.period_seconds("driver_controlled") == 90
 
 
+def test_match_load_inventory_effective_view_hides_overlay_storage(sources):
+    # M2 correction: consumers (e.g. field_setup) must be able to read the
+    # effective Match Load counts without knowing whether they live in the base
+    # field.yaml inventory or the vexu.yaml overlay's field_setup.match_loads block.
+    v5rc = load_rule_bundle(DATA_ROOT, "v1.1", "v5rc", sources)
+    vexu = load_rule_bundle(DATA_ROOT, "v1.1", "vexu", sources)
+
+    v5rc_inv = v5rc.match_load_inventory
+    assert v5rc_inv.red_cups == 10
+    assert v5rc_inv.red_own_color_yellow_pins == 10
+    assert v5rc_inv.red_yellow_yellow_pins == 1  # Glossary: "22 Pins, 11 per Alliance"
+    assert v5rc_inv.blue_cups == 10
+    assert v5rc_inv.blue_own_color_yellow_pins == 10
+    assert v5rc_inv.blue_yellow_yellow_pins == 1
+
+    vexu_inv = vexu.match_load_inventory
+    assert vexu_inv.red_cups == 10
+    assert vexu_inv.red_own_color_yellow_pins == 10
+    assert vexu_inv.red_yellow_yellow_pins == 3
+    assert vexu_inv.blue_cups == 10
+    assert vexu_inv.blue_own_color_yellow_pins == 10
+    assert vexu_inv.blue_yellow_yellow_pins == 3
+
+    assert v5rc_inv != vexu_inv
+
+
+def test_match_load_inventory_reflects_rule_data_not_a_hardcoded_value(sources):
+    # Prove match_load_inventory reads vexu.yaml rather than hardcoding VEX U's
+    # numbers -- same discipline as test_raising_v5rc_min_pins_scored_in_rule_data_flips_awp_result.
+    import copy
+    import dataclasses
+
+    vexu = load_rule_bundle(DATA_ROOT, "v1.1", "vexu", sources)
+    data = copy.deepcopy(vexu.data)
+    data["vexu_overlay"]["field_setup"]["match_loads"]["red_alliance"]["yellow_yellow_pins"] = 99
+    inflated = dataclasses.replace(vexu, data=data)
+    assert inflated.match_load_inventory.red_yellow_yellow_pins == 99
+    assert vexu.match_load_inventory.red_yellow_yellow_pins == 3
+
+
+def test_bundle_data_still_preserves_raw_vexu_overlay_for_provenance(sources):
+    # match_load_inventory is a *view* -- the raw overlay data must remain reachable
+    # for tooling/tests that are about the rule data itself (e.g. citation checks).
+    vexu = load_rule_bundle(DATA_ROOT, "v1.1", "vexu", sources)
+    raw = vexu.data["vexu_overlay"]["field_setup"]["match_loads"]
+    assert raw["red_alliance"]["yellow_yellow_pins"] == 3
+    assert raw["sources"]
+
+
 def test_bad_bundle_citing_superseded_source_is_rejected(tmp_path):
     from vexu_sim.sources import Source, SourceRegistry
 

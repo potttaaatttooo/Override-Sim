@@ -74,6 +74,10 @@ same `_build_quadrants_goals_toggles()` helper in `field_setup/starting_state.py
   **not Placed on any Goal** (`goal=None`) -- see "Deliberately not represented" below.
 - **On-Field Cups**: all 36 predetermined Cups (24 start gray-side-up, 12 clear-side-up) are on the
   Field but not nested to anything (`goal`/`occupant` concepts don't apply to a Cup that isn't stacked).
+- **Robots**: 4, none in the Midfield yet (`in_midfield=False`) -- a Robot at kickoff hasn't moved, not
+  an assumed strategy -- and all **contacting the Field Perimeter** (`contacting_perimeter=True`),
+  per `<SG1>`f: "Contacting the Field tiles and Field Perimeter on their Alliance's side of the
+  Autonomous Line" is a mandatory Match-start condition, not an optional starting pose.
 - **Preloads**: 4 Robots, each holding one Preload Pin (`<SG5>`) -- red-Alliance Robots preload
   red/yellow, blue-Alliance Robots preload blue/yellow. On the Field (held by a Robot), not Placed.
 - **Match Loads** (off-Field, in the Loader): 10 red/yellow + 1 yellow/yellow Pins and 10 Cups for red;
@@ -88,6 +92,9 @@ same `_build_quadrants_goals_toggles()` helper in `field_setup/starting_state.py
   Pin Placed** -- the only Pin on the Field at kickoff besides Preloads.
 - **Toggles**: identical starting orientation to V5RC (unmodified by Section 6).
 - **On-Field Cups**: **none**.
+- **Robots**: 4 (one 24" + one 15" per side, `<VUR1>`), `in_midfield=False` and
+  `contacting_perimeter=True` -- `<SG1>`f is unmodified for VEX U (`<VUG1>`/`<VUG3>` only change
+  clause (a), the starting-size clause), so the same Perimeter-contact requirement applies.
 - **Preloads**: 4 Robots (one 24" + one 15" per side, `<VUR1>`), each holding one Preload Pin -- `<SG5>`
   is not in `vexu.yaml`'s `overrides_base_rule_ids`, so it applies unmodified; combined with `<VUR1>`'s
   2-Robots-per-Team this yields the same 2 red/yellow + 2 blue/yellow Preload pattern as V5RC.
@@ -111,20 +118,33 @@ same `_build_quadrants_goals_toggles()` helper in `field_setup/starting_state.py
 | Match Load availability | Driver Controlled Period only (`<SG11>c`) | both periods (`<VUG4>`) |
 | Preloads | 2 red/yellow + 2 blue/yellow (1/Robot, 4 Robots) | 2 red/yellow + 2 blue/yellow (1/Robot, 4 Robots) |
 
-## Deliberately not represented
+## Deliberately not represented (deferred, not unknowable)
 
-- **Exact floor position of V5RC's 32 unplaced on-Field Pins (and all 36 on-Field Cups).** Appendix A's
-  "Scoring Object Locations" drawing precisely dimensions only objects at fixed Goal/Toggle mount
-  points; the Field Overview text gives a count and color-combination breakdown for the rest, not a
-  location, and Figure FO-2 (the only figure that shows more objects scattered around the Field) is
-  explicitly marked illustrative. Modeling an exact per-Goal stack topology for these Pins/Cups would
-  mean inventing placements no official source states -- prohibited by CLAUDE.md's rule-gap workflow.
-  This does not block M4 (match reconstruction), which will use real observed match states, not a
-  synthetic fully-detailed V5RC kickoff stack.
-- **Coordinates**, per `03-state-and-scoring.md`'s existing scope boundary -- unchanged by M2.
+The following are NOT modeled in M2, but this is a scope choice tracking `03-state-and-scoring.md`'s
+existing "no coordinates" boundary, not a claim that the information is unavailable. Figure FO-2 and
+Appendix A's "Scoring Object Locations" drawing (A12) *do* provide official starting-layout/spatial
+information -- A12 is a dimensioned CAD drawing giving precise X/Y locations for every fixed Goal/Toggle
+mount point, and Figure FO-2 additionally illustrates the scattered floor Pins/Cups. `MatchState` (M1)
+is deliberately non-spatial (no coordinates, no field dimensions -- see `03-state-and-scoring.md`, "What
+is deliberately not represented"), and no scoring predicate through M2 needs a coordinate to evaluate
+Placed/Scored/Owned status. Encoding this spatial data is therefore **deferred to a future
+spatial-model milestone** (M6's "replaceable spatial/travel model," per `docs/roadmap.md`), which is the
+first point a coordinate or region graph actually has a consumer -- not implemented here, to avoid
+adding an unused model dimension ahead of its need.
+
+- **Exact floor position of V5RC's 32 unplaced on-Field Pins (and all 36 on-Field Cups).** Appendix A
+  gives exact coordinates for these Cups/Pins the same way it does for Goal/Toggle mount points (see
+  "Field Element Locations," A10, and "Scoring Object Locations," A12); it is the *lack of a spatial
+  model to put that data in* that defers this, not a lack of source. When a future milestone adds
+  coordinates/regions, A12's dimensions are the source to transcribe from. This does not block M4
+  (match reconstruction), which will use real observed match states, not a synthetic V5RC kickoff
+  layout.
+- **Coordinates in general**, per `03-state-and-scoring.md`'s existing scope boundary -- unchanged by
+  M2, deferred to M6.
 - **Cup gray/clear starting-orientation**, per-object. `field.yaml` records the aggregate counts (24
-  gray-up, 12 clear-up) for provenance, but no current scoring predicate reads which face of an unplaced
-  Cup is up, so no `Cup` field was added for it (see "Model change," below).
+  gray-up, 12 clear-up) for provenance -- Appendix A's Cup Specifications drawing shows exactly what
+  each orientation means -- but no current scoring predicate reads which face of an unplaced Cup is up,
+  so no `Cup` field was added for it yet (see "Model change," below).
 
 ## Model change: `Pin.goal` becomes `Optional[Goal]`
 
@@ -136,3 +156,15 @@ scoring function reads `pin.goal` unless `is_pin_placed(pin)` is already true (v
 which is unaffected), so `goal=None` on an unplaced Pin is inert to every existing M0/M1 test and
 scoring path. `ScoringContext.START` was added alongside it (also purely descriptive, unread by
 `scoring.py`) so a starting-state snapshot doesn't have to misuse `AUTONOMOUS_END`/`MATCH_END`.
+
+## Rules-layer change: `RuleBundle.match_load_inventory`
+
+`field_setup` needs the effective, per-Alliance Match Load Pin/Cup counts (`<SG11>`/`<VUG4>`) without
+knowing whether they live in the base `field.yaml` inventory or the `vexu.yaml` overlay's
+`field_setup.match_loads` block -- the same "effective/composed accessor" pattern Session B already
+established for `awp_requirements` and `period_seconds` (`03-state-and-scoring.md`, "Program
+dispatch"). `RuleBundle.match_load_inventory` (`src/vexu_sim/rules/models.py`) adds this as a fifth
+such accessor; `field_setup/starting_state.py` calls only `rule_bundle.match_load_inventory`; it does
+not access `rule_bundle.data["vexu_overlay"]` at all. The raw overlay data remains reachable at
+`rule_bundle.data["vexu_overlay"]` for provenance/tooling that is about the rule data itself (e.g.
+`test_rules_load.py`'s citation checks) -- only `field_setup` was required to stop reading it directly.

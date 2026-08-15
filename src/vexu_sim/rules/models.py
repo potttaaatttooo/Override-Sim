@@ -27,15 +27,39 @@ class AWPRequirements:
 
 
 @dataclass(frozen=True)
+class MatchLoadInventory:
+    """The effective per-Alliance Match Load (off-Field, held in the Loader) Pin/Cup
+    counts at kickoff -- <SG11> (V5RC) / <VUG4> (VEX U). Structured so a consumer
+    (e.g. `field_setup`) never needs to know whether this data lives in the base
+    `field.yaml` inventory or the `vexu.yaml` overlay's `field_setup.match_loads`
+    block -- see RuleBundle.match_load_inventory. "Own-color" Pins are red/yellow for
+    the red Alliance, blue/yellow for blue.
+    """
+
+    red_cups: int
+    red_own_color_yellow_pins: int
+    red_yellow_yellow_pins: int
+    blue_cups: int
+    blue_own_color_yellow_pins: int
+    blue_yellow_yellow_pins: int
+
+
+@dataclass(frozen=True)
 class RuleBundle:
     """A composed rule bundle for one manual version and one program.
 
     `data` holds one key per base rule file (meta, periods, scoring, field,
     robot_limits) for program="v5rc". For program="vexu", `data` additionally holds a
     "vexu_overlay" key with the raw contents of vexu.yaml -- the base sections are NOT
-    deep-merged with the overlay; Session B's scoring code consults vexu_overlay first
-    for VEX U matches. This keeps composition simple (no generic deep-merge machinery)
-    while still making "what changed" explicit via `overridden_rule_ids`.
+    deep-merged with the overlay. `data` (including `vexu_overlay`) is preserved
+    verbatim for provenance and is fine to inspect directly in tests or tooling that
+    is *about* the rule data itself. Game-logic consumers (scoring, field_setup)
+    should instead use the effective/composed accessors below (`point_values`,
+    `autonomous_bonus_includes_midfield`, `awp_requirements`, `period_seconds`,
+    `match_load_inventory`), none of which require the caller to know whether a
+    value came from the base bundle or the VEX U overlay. This keeps composition
+    simple (no generic deep-merge machinery) while still making "what changed"
+    explicit via `overridden_rule_ids`.
     """
 
     manual_version: str
@@ -85,3 +109,37 @@ class RuleBundle:
         if self.program == "vexu":
             return self.data["vexu_overlay"]["periods"][key]["value"]
         return self.data["periods"]["v5rc"][key]["value"]
+
+    @property
+    def match_load_inventory(self) -> MatchLoadInventory:
+        """The effective Match Load Pin/Cup counts for this program (<SG11> for
+        V5RC, <VUG4> for VEX U), without the caller needing to know whether the
+        counts live in the base field.yaml inventory or the vexu.yaml overlay's
+        field_setup.match_loads block. See MatchLoadInventory.
+        """
+        if self.program == "vexu":
+            match_loads = self.data["vexu_overlay"]["field_setup"]["match_loads"]
+            red = match_loads["red_alliance"]
+            blue = match_loads["blue_alliance"]
+            return MatchLoadInventory(
+                red_cups=red["cups"],
+                red_own_color_yellow_pins=red["red_yellow_pins"],
+                red_yellow_yellow_pins=red["yellow_yellow_pins"],
+                blue_cups=blue["cups"],
+                blue_own_color_yellow_pins=blue["blue_yellow_pins"],
+                blue_yellow_yellow_pins=blue["yellow_yellow_pins"],
+            )
+        inventory = self.data["field"]["inventory"]
+        pins = inventory["pins"]["breakdown"]
+        cups = inventory["cups"]["breakdown"]
+        # Glossary "Match Load" entry (p.B6): "22 Pins, 11 per Alliance" -- the 2
+        # yellow_yellow_match_loads split evenly, 1 per Alliance.
+        yellow_yellow_each = pins["yellow_yellow_match_loads"] // 2
+        return MatchLoadInventory(
+            red_cups=cups["match_loads_red"],
+            red_own_color_yellow_pins=pins["red_yellow_match_loads"],
+            red_yellow_yellow_pins=yellow_yellow_each,
+            blue_cups=cups["match_loads_blue"],
+            blue_own_color_yellow_pins=pins["blue_yellow_match_loads"],
+            blue_yellow_yellow_pins=yellow_yellow_each,
+        )

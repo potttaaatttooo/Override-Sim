@@ -244,7 +244,9 @@ def test_v5rc_robots_and_preloads(v5rc_bundle):
     for robot in state.robots:
         assert robot.program == "v5rc"
         assert robot.in_midfield is False
-        assert robot.contacting_perimeter is False
+        # <SG1>f: every Robot must start "Contacting the Field tiles and Field
+        # Perimeter on their Alliance's side of the Autonomous Line."
+        assert robot.contacting_perimeter is True
 
     preloads = [p for p in state.pins if p.id.startswith("preload_")]
     assert len(preloads) == 4
@@ -261,7 +263,8 @@ def test_vexu_robots_and_preloads(vexu_bundle):
     for robot in state.robots:
         assert robot.program == "vexu"
         assert robot.in_midfield is False
-        assert robot.contacting_perimeter is False
+        # <SG1>f, unmodified for VEX U -- <VUG1>/<VUG3> only change clause (a).
+        assert robot.contacting_perimeter is True
 
 
 # --- Program separation and object independence -----------------------------------

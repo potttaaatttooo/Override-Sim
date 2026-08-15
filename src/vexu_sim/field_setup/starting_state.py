@@ -165,15 +165,18 @@ def _loose_cups(prefix: str, count: int) -> list[Cup]:
 def _robots_and_preloads(program: str, red_ids: list[str], blue_ids: list[str]) -> tuple[list[Robot], list[Pin]]:
     """Robots plus their Preload Pins, one Preload per Robot (<SG5>, unmodified for
     VEX U -- not in vexu.yaml's overrides_base_rule_ids -- combined with <VUR1>'s 2
-    Robots per Team). A Robot at kickoff has done nothing yet, so `in_midfield` and
-    `contacting_perimeter` are trivially False -- not an assumed strategy, just the
-    "hasn't moved" starting fact. Preload Pins are on the Field (held by a Robot) but
-    not Placed: `goal=None`, `rests_on=None`."""
+    Robots per Team). A Robot at kickoff has done nothing yet, so `in_midfield` is
+    trivially False -- not an assumed strategy, just the "hasn't moved" starting
+    fact. `contacting_perimeter` is True: <SG1>f requires each Robot to start
+    "Contacting the Field tiles and Field Perimeter on their Alliance's side of the
+    Autonomous Line"; VEX U's <VUG1>/<VUG3> modify only <SG1>'s size clause (a), not
+    clause f, so this holds unmodified for both programs. Preload Pins are on the
+    Field (held by a Robot) but not Placed: `goal=None`, `rests_on=None`."""
     robots = [
-        Robot(id=rid, alliance=Alliance.RED, program=program, in_midfield=False, contacting_perimeter=False)
+        Robot(id=rid, alliance=Alliance.RED, program=program, in_midfield=False, contacting_perimeter=True)
         for rid in red_ids
     ] + [
-        Robot(id=rid, alliance=Alliance.BLUE, program=program, in_midfield=False, contacting_perimeter=False)
+        Robot(id=rid, alliance=Alliance.BLUE, program=program, in_midfield=False, contacting_perimeter=True)
         for rid in blue_ids
     ]
     preloads = [
@@ -233,24 +236,33 @@ def build_v5rc_starting_state(rule_bundle: RuleBundle) -> StartingFieldState:
         robots=robots,
     )
 
-    # Match Load Glossary entry (p.B6): "22 Pins, 11 per Alliance" == the 10
-    # own-color red_yellow_match_loads/blue_yellow_match_loads plus a 1-Pin share of
-    # the 2 yellow_yellow_match_loads for each Alliance.
-    yellow_yellow_match_loads_each = pins_breakdown["yellow_yellow_match_loads"] // 2
-    match_load_pins = (
-        MatchLoadPinEntry(Alliance.RED, Color.RED, Color.YELLOW, pins_breakdown["red_yellow_match_loads"]),
-        MatchLoadPinEntry(Alliance.RED, Color.YELLOW, Color.YELLOW, yellow_yellow_match_loads_each),
-        MatchLoadPinEntry(Alliance.BLUE, Color.BLUE, Color.YELLOW, pins_breakdown["blue_yellow_match_loads"]),
-        MatchLoadPinEntry(Alliance.BLUE, Color.YELLOW, Color.YELLOW, yellow_yellow_match_loads_each),
-    )
-    match_load_cups = (
-        MatchLoadCupEntry(Alliance.RED, cups_breakdown["match_loads_red"]),
-        MatchLoadCupEntry(Alliance.BLUE, cups_breakdown["match_loads_blue"]),
-    )
+    match_load_pins, match_load_cups = _match_load_entries(rule_bundle)
 
     return StartingFieldState(
         match_state=match_state, match_load_pins=match_load_pins, match_load_cups=match_load_cups
     )
+
+
+def _match_load_entries(
+    rule_bundle: RuleBundle,
+) -> tuple[tuple[MatchLoadPinEntry, ...], tuple[MatchLoadCupEntry, ...]]:
+    """Off-field Match Load entries for either program, read through
+    `RuleBundle.match_load_inventory` -- the effective/composed accessor (Session B's
+    established pattern: `awp_requirements`, `period_seconds`) so field_setup never
+    needs to know whether the underlying counts live in the base field.yaml
+    inventory or the vexu.yaml overlay's field_setup.match_loads block."""
+    inventory = rule_bundle.match_load_inventory
+    match_load_pins = (
+        MatchLoadPinEntry(Alliance.RED, Color.RED, Color.YELLOW, inventory.red_own_color_yellow_pins),
+        MatchLoadPinEntry(Alliance.RED, Color.YELLOW, Color.YELLOW, inventory.red_yellow_yellow_pins),
+        MatchLoadPinEntry(Alliance.BLUE, Color.BLUE, Color.YELLOW, inventory.blue_own_color_yellow_pins),
+        MatchLoadPinEntry(Alliance.BLUE, Color.YELLOW, Color.YELLOW, inventory.blue_yellow_yellow_pins),
+    )
+    match_load_cups = (
+        MatchLoadCupEntry(Alliance.RED, inventory.red_cups),
+        MatchLoadCupEntry(Alliance.BLUE, inventory.blue_cups),
+    )
+    return match_load_pins, match_load_cups
 
 
 def build_vexu_starting_state(rule_bundle: RuleBundle) -> StartingFieldState:
@@ -283,19 +295,7 @@ def build_vexu_starting_state(rule_bundle: RuleBundle) -> StartingFieldState:
         robots=robots,
     )
 
-    match_loads = rule_bundle.data["vexu_overlay"]["field_setup"]["match_loads"]
-    red = match_loads["red_alliance"]
-    blue = match_loads["blue_alliance"]
-    match_load_pins = (
-        MatchLoadPinEntry(Alliance.RED, Color.RED, Color.YELLOW, red["red_yellow_pins"]),
-        MatchLoadPinEntry(Alliance.RED, Color.YELLOW, Color.YELLOW, red["yellow_yellow_pins"]),
-        MatchLoadPinEntry(Alliance.BLUE, Color.BLUE, Color.YELLOW, blue["blue_yellow_pins"]),
-        MatchLoadPinEntry(Alliance.BLUE, Color.YELLOW, Color.YELLOW, blue["yellow_yellow_pins"]),
-    )
-    match_load_cups = (
-        MatchLoadCupEntry(Alliance.RED, red["cups"]),
-        MatchLoadCupEntry(Alliance.BLUE, blue["cups"]),
-    )
+    match_load_pins, match_load_cups = _match_load_entries(rule_bundle)
 
     return StartingFieldState(
         match_state=match_state, match_load_pins=match_load_pins, match_load_cups=match_load_cups

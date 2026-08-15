@@ -1,4 +1,10 @@
 from .loader import RuleValidationError, load_rule_bundle
-from .models import AWPRequirements, RuleBundle
+from .models import AWPRequirements, MatchLoadInventory, RuleBundle
 
-__all__ = ["AWPRequirements", "RuleBundle", "RuleValidationError", "load_rule_bundle"]
+__all__ = [
+    "AWPRequirements",
+    "MatchLoadInventory",
+    "RuleBundle",
+    "RuleValidationError",
+    "load_rule_bundle",
+]
