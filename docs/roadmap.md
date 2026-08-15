@@ -11,9 +11,11 @@ entrenched guessed priors to unlearn later.
 - **M1 — Deterministic scoring.** *(Session B — complete)* MatchState dataclasses (only the
   rule-required location predicates — no coordinates, no zone graph) + pure scoring functions +
   golden tests against the manual's own worked examples (p.17) and rule edge cases. → **Gate V1**
-- **M2 — Initial field states.** *(next)* Encode V5RC and VEX U starting configurations from
-  Appendix A and Figures FO-2/VEXU-1; resolve whether the VEX U on-field layout otherwise matches
-  V5RC's Figure FO-2 (a manual-reading task, not an open question); inventory-sum tests.
+- **M2 — Initial field states.** *(complete)* V5RC and VEX U starting configurations encoded in
+  `src/vexu_sim/field_setup/` from Appendix A ("Scoring Object Locations," "Toggle Assembly -
+  Starting Orientation") and Figures FO-2/VEXU-1/VEXU-2; the VEX U-vs-V5RC layout question is
+  resolved in `docs/design/06-starting-field-states.md`. Inventory-sum and per-color-combination
+  tests in `tests/test_starting_state.py`.
 - **M3 — Observation schema and labeling protocol.** Define the label vocabulary (see sketch
   below) and labeling protocol; hand-label a pilot set of 5-10 real V5RC Override matches. **If
   multiple labelers are available, run an inter-labeler agreement check on a shared subset. If

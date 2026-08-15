@@ -70,6 +70,10 @@ the manual's "the Pin resting on top is not considered Placed" outcome, without 
   rather than derived by walking the nesting chain down through intermediate Cups: nothing in the
   rules needs the intermediate chain itself, only which Goal grounds it, and re-deriving it via
   traversal would be exactly the kind of physics-flavored computation this milestone avoids.
+  `Pin.goal` is `Optional` (M2, `docs/design/06-starting-field-states.md`): `None` for a Pin that
+  is on the Field but not yet Placed on any Goal's stack -- a loose predetermined starting Pin, or
+  a Preload held by a Robot. No scoring function reads `pin.goal` unless `is_pin_placed(pin)` is
+  already true via `rests_on`/`occupant`, so this is inert to every Placed-pin code path.
 
 ### Placed (`<SC2>`)
 
@@ -127,7 +131,7 @@ redefinition (Section 6: "Alliance" = a Team's own two Robots) -- also **PROVISI
 ```
 MatchState:
   program: "v5rc" | "vexu"
-  scoring_context: AUTONOMOUS_END | MATCH_END   # which instant this snapshot represents
+  scoring_context: START | AUTONOMOUS_END | MATCH_END   # which instant this snapshot represents
   goals: list[Goal]
   pins: list[Pin]
   cups: list[Cup]

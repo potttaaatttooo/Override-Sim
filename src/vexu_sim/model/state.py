@@ -37,6 +37,9 @@ class GoalType(str, Enum):
 class ScoringContext(str, Enum):
     """Which instant a MatchState snapshot represents."""
 
+    START = "start"
+    """Before either period begins -- the official pre-Match configuration (M2). No
+    scoring function reads this value; it is descriptive metadata only."""
     AUTONOMOUS_END = "autonomous_end"
     MATCH_END = "match_end"
 
@@ -121,10 +124,14 @@ class Pin:
     id: str
     half_a: PinHalf
     half_b: PinHalf
-    goal: Goal
+    goal: Optional[Goal] = None
     """The Goal this Pin's stack is built on -- see docs/design/03-state-and-scoring.md
     for why this is recorded directly rather than derived by walking the nesting
-    chain."""
+    chain. None for a Pin that exists on the Field but is not (yet) Placed on any
+    Goal's stack -- e.g. a predetermined Pin resting loose on the Field at the start
+    of a Match (M2), or a Preload held by a Robot. A Pin with goal=None can never be
+    Placed (is_pin_placed reads rests_on/occupant, not goal, so this is enforced by
+    construction discipline in field_setup/, not by scoring.py itself)."""
 
 
 @dataclass

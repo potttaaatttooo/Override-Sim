@@ -80,8 +80,11 @@ implement MatchState + pure scoring functions, validated against the manual's ow
 (p.17) and rule edge cases (Figure SC2-2, etc.). Gate V1 is implemented. No CLI or simulation exist
 yet.
 
-**Next: M2 — Initial field states.** Encode V5RC and VEX U starting configurations from Appendix A
-and Figures FO-2/VEXU-1; inventory-sum tests.
+**M2 complete: initial field states.** `src/vexu_sim/field_setup` builds the official V5RC and VEX U
+starting `MatchState`s (plus off-field Match Load inventory) from Appendix A and Section 6, per
+`docs/design/06-starting-field-states.md`. No CLI, simulation, or coordinates were introduced.
+
+**Next: M3 — Observation schema and labeling protocol.**
 
 ## Commands
 
