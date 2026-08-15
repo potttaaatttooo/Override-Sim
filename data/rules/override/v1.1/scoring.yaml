@@ -110,5 +110,19 @@ autonomous_win_point_criteria_v5rc:
     - "At least seven (7) Pins Scored for your Alliance. (Does not include Pins Scored in Quadrants on the opposing side of the Autonomous Line.)"
     - "At least three (3) Goals each contain at least two (2) Pins Scored for your Alliance. (Does not include Goals in Quadrants on the opposing side of the Autonomous Line.)"
     - "Neither Robot is contacting the Field Perimeter."
+  # Structured restatement of the conditions above, for the scorer to consume without
+  # hardcoding rule-version-specific numbers -- see RuleBundle.awp_requirements
+  # (src/vexu_sim/rules/models.py). Covered by the same citation as `conditions`.
+  # excludes_opposing_side_of_autonomous_line: PROVISIONAL -- "opposing side of the
+  # Autonomous Line" is implemented as "Quadrant whose color differs from your
+  # Alliance," inferred from field topology (Figure FO-1) rather than a literal
+  # manual sentence. See docs/open-questions.md #2.
+  requirements:
+    min_pins_scored: 7
+    min_qualifying_goals: 3
+    min_pins_per_qualifying_goal: 2
+    excludes_opposing_side_of_autonomous_line: true
+    perimeter_contact_forbidden: true
+    requires_robot_in_midfield: false
   no_violations_during_autonomous: true
   sources: [{ref: "manual:v1.1", rule_ids: ["SC8"], page: 18}]

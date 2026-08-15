@@ -113,6 +113,53 @@ def test_bad_bundle_with_empty_sources_list_is_rejected(tmp_path, sources):
         load_rule_bundle(bad_root, "v1.1", "v5rc", empty_sources)
 
 
+def test_point_values_identical_across_programs(sources):
+    v5rc = load_rule_bundle(DATA_ROOT, "v1.1", "v5rc", sources)
+    vexu = load_rule_bundle(DATA_ROOT, "v1.1", "vexu", sources)
+    assert v5rc.point_values == vexu.point_values
+    assert v5rc.point_values["scored_pin_half_alliance_colored"]["points"] == 5
+    assert v5rc.point_values["autonomous_bonus"]["tie_points_each"] == 6
+
+
+def test_autonomous_bonus_includes_midfield_is_program_specific(sources):
+    v5rc = load_rule_bundle(DATA_ROOT, "v1.1", "v5rc", sources)
+    vexu = load_rule_bundle(DATA_ROOT, "v1.1", "vexu", sources)
+    assert v5rc.autonomous_bonus_includes_midfield is False
+    assert vexu.autonomous_bonus_includes_midfield is True
+
+
+def test_awp_requirements_differ_between_programs(sources):
+    v5rc = load_rule_bundle(DATA_ROOT, "v1.1", "v5rc", sources)
+    vexu = load_rule_bundle(DATA_ROOT, "v1.1", "vexu", sources)
+
+    v5rc_req = v5rc.awp_requirements
+    vexu_req = vexu.awp_requirements
+    assert v5rc_req != vexu_req
+
+    assert v5rc_req.min_pins_scored == 7
+    assert v5rc_req.min_qualifying_goals == 3
+    assert v5rc_req.min_pins_per_qualifying_goal == 2
+    assert v5rc_req.excludes_opposing_side_of_autonomous_line is True
+    assert v5rc_req.perimeter_contact_forbidden is True
+    assert v5rc_req.requires_robot_in_midfield is False
+
+    assert vexu_req.min_pins_scored == 12
+    assert vexu_req.min_qualifying_goals == 4
+    assert vexu_req.min_pins_per_qualifying_goal == 2
+    assert vexu_req.excludes_opposing_side_of_autonomous_line is True
+    assert vexu_req.perimeter_contact_forbidden is True
+    assert vexu_req.requires_robot_in_midfield is True
+
+
+def test_period_seconds_effective_view_hides_overlay_storage(sources):
+    v5rc = load_rule_bundle(DATA_ROOT, "v1.1", "v5rc", sources)
+    vexu = load_rule_bundle(DATA_ROOT, "v1.1", "vexu", sources)
+    assert v5rc.period_seconds("autonomous") == 15
+    assert v5rc.period_seconds("driver_controlled") == 105
+    assert vexu.period_seconds("autonomous") == 30
+    assert vexu.period_seconds("driver_controlled") == 90
+
+
 def test_bad_bundle_citing_superseded_source_is_rejected(tmp_path):
     from vexu_sim.sources import Source, SourceRegistry
 

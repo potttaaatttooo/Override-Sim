@@ -76,6 +76,20 @@ autonomous_win_point_criteria:
   alliance_note: >
     In VEX U, "Alliance" is redefined (see ranking_and_alliance below) as the Team's own two
     Robots, so "your Alliance" in this criteria list means the Team's own pair.
+  # Structured restatement of the conditions above, for the scorer to consume without
+  # hardcoding rule-version-specific numbers -- see RuleBundle.awp_requirements
+  # (src/vexu_sim/rules/models.py). Covered by the same citation as `conditions`.
+  # excludes_opposing_side_of_autonomous_line: PROVISIONAL -- see docs/open-questions.md #2.
+  # requires_robot_in_midfield: PROVISIONAL -- condition 4 does not repeat "for your
+  # Alliance" the way conditions 1-2 do; this project reads it as still referring to
+  # the achieving Alliance's own Robot(s). See docs/open-questions.md #3.
+  requirements:
+    min_pins_scored: 12
+    min_qualifying_goals: 4
+    min_pins_per_qualifying_goal: 2
+    excludes_opposing_side_of_autonomous_line: true
+    perimeter_contact_forbidden: true
+    requires_robot_in_midfield: true
   no_violations_during_autonomous: true
   sources: [{ref: "manual:v1.1", rule_ids: ["VUG6"], page: 75}]
 
