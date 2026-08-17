@@ -151,7 +151,14 @@ def reconcile_toggle_orientation(
         if snap is None:
             results[toggle_id] = ChannelResult("indeterminate", "no match_end snapshot")
             continue
-        events_for_toggle = sorted(by_toggle.get(toggle_id, []), key=lambda p: p[0])
+        # Only entries with a numeric timestamp can be ordered at all -- an
+        # invalid (non-numeric) one is already rejected by validate_observation_
+        # set's per-record checks, and this reconciliation pass must not invent
+        # an ordering (or crash comparing str to float) to include it here.
+        events_for_toggle = sorted(
+            (item for item in by_toggle.get(toggle_id, []) if _is_number(item[0])),
+            key=lambda p: p[0],
+        )
         if events_for_toggle:
             predicted = events_for_toggle[-1][1]
         else:

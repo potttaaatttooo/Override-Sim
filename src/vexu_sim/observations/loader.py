@@ -882,6 +882,12 @@ def _validate_no_next_action(actions: list[Action], match: MatchObservation, err
         robot_entry = next((r for r in match.roster if r.robot_ref == robot_ref), None)
         if robot_entry is None or not robot_entry.cycle_labeled:
             continue
+        if not all(_is_number(a.video_t_start) for a in group):
+            # Cannot reliably order (and therefore cannot determine terminality
+            # for) this (robot, period) group -- the offending Action(s) already
+            # get a "video_t_start must be numeric" error from _validate_action;
+            # do not invent an ordering on top of an invalid timestamp.
+            continue
         ordered = sorted(group, key=lambda a: a.video_t_start)
         for i, action in enumerate(ordered):
             has_next = i < len(ordered) - 1
@@ -1098,6 +1104,13 @@ def _validate_possession_episodes(
     seen_ids_by_robot: dict[str, frozenset[str]] = {}
 
     for robot_ref, items in by_robot.items():
+        if not all(_is_number(t) for _kind, t, _rec in items):
+            # Cannot reliably order this robot's possession chronology -- the
+            # offending record's timestamp already gets a "must be numeric" error
+            # from its own record validator (Action.video_t_start /
+            # StateChange.video_t). Do not invent an ordering to validate against.
+            seen_ids_by_robot[robot_ref] = frozenset()
+            continue
         items.sort(key=lambda t: t[1])
         open_id: Optional[str] = None
         held: set[str] = set()
@@ -1345,6 +1358,10 @@ def validate_observation_set(
     for a in actions:
         by_robot.setdefault(a.robot_ref, []).append(a)
     for robot_ref, group in by_robot.items():
+        if not all(_is_number(a.video_t_start) for a in group):
+            # Cannot reliably order this robot's Actions to detect overlap -- the
+            # offending Action already gets a "must be numeric" error above.
+            continue
         ordered = sorted(group, key=lambda a: a.video_t_start)
         for prev, nxt in zip(ordered, ordered[1:]):
             if _is_number(prev.video_t_end) and prev.video_t_end > nxt.video_t_start:
@@ -1371,6 +1388,13 @@ def canonicalize_no_next_action(events: tuple, match: MatchObservation) -> tuple
     still surfaced as a validation error by `_validate_no_next_action`, not silently
     corrected here -- only the genuinely terminal case is a deterministic data fact
     this function is allowed to fix.
+
+    If a (robot, period) group contains an Action whose `video_t_start` is not
+    numeric (e.g. `"unknown"` -- illegal for this field, but this function must
+    not crash on illegal input), the terminal Action cannot be determined
+    reliably: no ordering is invented, that group is left untouched, and
+    `validate_observation_set`'s ordinary numeric-type check rejects the invalid
+    timestamp afterward.
     """
     cycle_labeled = {r.robot_ref for r in match.roster if r.cycle_labeled}
     actions = [e for e in events if isinstance(e, Action)]
@@ -1381,6 +1405,8 @@ def canonicalize_no_next_action(events: tuple, match: MatchObservation) -> tuple
     canonical_by_id: dict[str, Action] = {}
     for (robot_ref, _period), group in by_group.items():
         if robot_ref not in cycle_labeled:
+            continue
+        if not all(_is_number(a.video_t_start) for a in group):
             continue
         ordered = sorted(group, key=lambda a: a.video_t_start)
         terminal = ordered[-1]

@@ -1638,3 +1638,119 @@ def test_import_match_from_csv_still_leaves_matching_hash_untouched(tmp_path, v5
     before = (match_dir / "match.yaml").read_bytes()
     import_match_from_csv(match_dir, rule_bundle=v5rc_bundle)
     assert (match_dir / "match.yaml").read_bytes() == before
+
+
+# =====================================================================================
+# Robustness: order-dependent validation must never raise on an invalid timestamp
+# =====================================================================================
+
+
+def test_no_next_action_validation_survives_mixed_numeric_and_unknown_video_t_start(v5rc_bundle):
+    # r_red_a is cycle_labeled in minimal_match's default roster, so both Actions
+    # require gap_after -- one has a numeric video_t_start, the other "unknown".
+    # Sorting this (robot, period) group by video_t_start to find the terminal
+    # Action would previously compare float to str and raise TypeError.
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(action(id="a_1", video_t_start="unknown", video_t_end="unknown",
+                            possession_id="r_red_a#1", gap_after="mixed")),
+        parse_event(action(id="a_2", video_t_start=42.0, video_t_end=43.0,
+                            possession_id="r_red_a#1", gap_after="no_next_action")),
+    )
+    errors, warnings = validate_observation_set(match, snapshots, events, v5rc_bundle)  # must not raise
+    assert any("video_t_start" in e and "a_1" in e for e in errors)
+    # the order-dependent no_next_action check is skipped for this group, not
+    # guessed at -- it must not additionally complain about a_2's gap_after.
+    assert not any("no_next_action" in e for e in errors)
+
+
+def test_canonicalize_no_next_action_survives_invalid_video_t_start(v5rc_bundle):
+    match, _ = _minimal(v5rc_bundle)
+    events = (
+        parse_event(action(id="a_1", video_t_start="unknown", video_t_end="unknown",
+                            possession_id="r_red_a#1", gap_after="mixed")),
+        parse_event(action(id="a_2", video_t_start=42.0, video_t_end=43.0,
+                            possession_id="r_red_a#1", gap_after="mixed")),
+    )
+    canonical = canonicalize_no_next_action(events, match)  # must not raise
+    by_id = {e.id: e for e in canonical}
+    # terminal Action cannot be reliably determined -- neither is touched.
+    assert by_id["a_1"].gap_after == "mixed"
+    assert by_id["a_2"].gap_after == "mixed"
+
+
+def test_csv_import_with_unknown_video_t_start_raises_observation_error_not_typeerror(tmp_path, v5rc_bundle):
+    match_raw = _write_match_and_snapshots(tmp_path, v5rc_bundle)
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    csv_path = tmp_path / "events.source.csv"
+    _write_events_csv(csv_path, [
+        dict(record_type="action", id="a_1", robot_ref="r_red_a", period="driver",
+             action_type="acquire", video_t_start="unknown", video_t_end="unknown",
+             region="quadrant_red_1", outcome="success", contested="none",
+             confidence="certain", gap_after="mixed", source="floor", object="pin",
+             possession_id="r_red_a#1"),
+        dict(record_type="action", id="a_2", robot_ref="r_red_a", period="driver",
+             action_type="place", video_t_start="23.0", video_t_end="24.0",
+             region="quadrant_red_1", outcome="success", contested="none",
+             confidence="certain", gap_after="mixed", object="pin",
+             target_goal_ref="g_alliance_red_1", stack_height_before="0",
+             stack_height_after="1", destabilized_stack="false",
+             possession_id="r_red_a#1"),
+    ])
+    # canonicalize_no_next_action runs before validate_observation_set on this
+    # path -- this is the scenario most directly at risk of a raw TypeError.
+    with pytest.raises(FromCsvValidationError, match="video_t_start"):
+        import_events_csv(csv_path, match=match, snapshots=snapshots, rule_bundle=v5rc_bundle)
+
+
+def test_possession_episode_chronology_survives_invalid_ordering_timestamp(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        action(id="a_1", video_t_start="unknown", video_t_end="unknown",
+               possession_id="r_red_a#1", gap_after="mixed"),
+        dict(record_type="state_change", id="sc_1", period="driver", video_t=22.5,
+             change="object_dropped_in_transit", attributed_to="r_red_a", confidence="certain",
+             possession_id="r_red_a#1", object="pin"),
+    )
+    events = tuple(parse_event(e) for e in events)
+    errors, warnings = validate_observation_set(match, snapshots, events, v5rc_bundle)  # must not raise
+    assert any("video_t_start" in e and "a_1" in e for e in errors)
+
+
+def test_overlap_qc_survives_invalid_ordering_timestamp(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(action(id="a_1", video_t_start="unknown", video_t_end="unknown",
+                            possession_id="r_red_a#1", gap_after="mixed")),
+        parse_event(action(id="a_2", video_t_start=42.0, video_t_end=43.0,
+                            possession_id="r_red_a#1", gap_after="no_next_action")),
+    )
+    errors, warnings = validate_observation_set(match, snapshots, events, v5rc_bundle)  # must not raise
+    assert not any("overlap" in w for w in warnings)
+
+
+def test_valid_observations_unaffected_by_robustness_fix(v5rc_bundle):
+    # Control: a fully valid, chronologically-ordered group must still get the
+    # normal no_next_action treatment -- the robustness guard must not skip
+    # legitimate, well-typed groups.
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(action(id="a_1", video_t_start=21.0, video_t_end=22.0,
+                            possession_id="r_red_a#1", gap_after="mixed")),
+        parse_event(action(id="a_2", video_t_start=23.0, video_t_end=24.0,
+                            possession_id="r_red_a#1", gap_after="mixed")),
+    )
+    errors, warnings = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    # a_2 is terminal but wasn't labeled no_next_action -- still correctly rejected.
+    assert any("no_next_action" in e for e in errors)
+
+    canonical = {e.id: e for e in canonicalize_no_next_action(events, match)}
+    assert canonical["a_1"].gap_after == "mixed"
+    assert canonical["a_2"].gap_after == "no_next_action"
+
+
+def test_synthetic_fixture_still_loads_identically_after_robustness_fix(v5rc_bundle):
+    loaded = load_match_observation(FIXTURE_ROOT, rule_bundle=v5rc_bundle)
+    assert len(loaded.events) == 19
+    assert len(loaded.warnings) == 1
