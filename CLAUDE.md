@@ -58,7 +58,8 @@ src/vexu_sim/rules/                        load + compose + validate rule bundle
 src/vexu_sim/model/                        MatchState dataclasses (Pin/Cup/Goal/Toggle/Robot, etc.)
 src/vexu_sim/scoring/                      pure deterministic scoring functions over a MatchState
 src/vexu_sim/field_setup/                  official V5RC/VEX U starting MatchStates + Match Load inventory
-tests/                                     pytest; fixtures/scoring/ for golden scoring cases
+src/vexu_sim/observations/                 load + validate + reconcile labeled observations; CSV->YAML importer
+tests/                                     pytest; fixtures/scoring/, fixtures/observations/ for fixtures
 ```
 
 ## Provenance convention
@@ -90,7 +91,17 @@ yet.
 starting `MatchState`s (plus off-field Match Load inventory) from Appendix A and Section 6, per
 `docs/design/06-starting-field-states.md`. No CLI, simulation, or coordinates were introduced.
 
-**Next: M3 — Observation schema and labeling protocol.**
+**M3A complete: observation schema and tooling.** `docs/design/07-observation-schema.md`
+and `docs/design/08-labeling-protocol.md` are the normative schema/procedure references;
+`src/vexu_sim/observations/` implements the eight record families (`match`, `snapshot`,
+`action`, `loader_visit`, `midfield_occupancy`, `incident`, `interaction`,
+`state_change`), the validator, the three-channel reconciliation (`reconcile.py`), and
+the deterministic `events.source.csv` -> `events.yaml` importer (`from_csv.py`), all
+against a synthetic fixture only -- zero real match video has been reviewed or labeled.
+`data/observations/` remains empty of real matches.
+
+**Next: M3B — three-match pilot corpus and schema-revision checkpoint.** M3 overall
+remains open until M3B and M3C are done.
 
 ## Commands
 

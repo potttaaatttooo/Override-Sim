@@ -16,9 +16,10 @@ entrenched guessed priors to unlearn later.
   Starting Orientation") and Figures FO-2/VEXU-1/VEXU-2; the VEX U-vs-V5RC layout question is
   resolved in `docs/design/06-starting-field-states.md`. Inventory-sum and per-color-combination
   tests in `tests/test_starting_state.py`.
-- **M3 — Observation schema and labeling protocol.** Split into **M3A** (observation schema +
-  tooling: record types, field-by-field schema, validator, CSV→YAML importer, synthetic
-  fixtures/tests — no real matches required to close it), **M3B** (a 3-match pilot corpus across
+- **M3 — Observation schema and labeling protocol.** Split into **M3A** (*complete*: observation
+  schema + tooling -- record types, field-by-field schema, validator, CSV→YAML importer, synthetic
+  fixtures/tests, `docs/design/07-observation-schema.md` + `08-labeling-protocol.md` — closed with
+  zero real matches), **M3B** (*next*: a 3-match pilot corpus across
   `baseline_clean`/`typical_broadcast`/`poor_video` video quality, reconciliation, and a
   schema-revision checkpoint), and **M3C** (5 more matches to reach an 8-match pilot, plus QC —
   **if multiple labelers are available, an inter-labeler agreement check on a shared subset; if
@@ -52,9 +53,9 @@ possession episodes, reconciliation design, parameter traceability, labeling wor
 selection, and QC protocol — lives in `docs/plans/m3-observation-plan.md`, not here, so there is
 exactly one schema to keep in sync. Summary of the execution split:
 
-- **M3A** — observation schema + tooling: normative schema docs, `src/vexu_sim/observations/`
-  (models, validator, reconciliation, CSV→YAML importer), synthetic fixtures/tests. No real
-  matches required to close M3A.
+- **M3A** *(complete)* — observation schema + tooling: normative schema docs, `src/vexu_sim/
+  observations/` (models, validator, reconciliation, CSV→YAML importer), synthetic fixtures/tests.
+  Closed with zero real matches.
 - **M3B** — a 3-match pilot corpus (`baseline_clean` / `typical_broadcast` / `poor_video`),
   reconciliation run on all three, and a schema-revision checkpoint.
 - **M3C** — 5 more matches (8 total), corpus-breadth strata, and QC (single-labeler re-label or

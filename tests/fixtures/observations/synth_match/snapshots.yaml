@@ -1,0 +1,75 @@
+# Synthetic fixture snapshots -- no real match video. See docs/design/07-observation-
+# schema.md §Snapshot and docs/plans/m3-observation-plan.md §C.2.
+- snapshot_id: s_autonomous_end
+  context: autonomous_end
+  video_t: 25.0
+  quality: good
+  goals:
+    g_alliance_red_1: {stack: [], confidence: certain}
+    g_alliance_red_2: {stack: [], confidence: certain}
+    g_alliance_blue_1: {stack: [], confidence: certain}
+    g_alliance_blue_2: {stack: [], confidence: certain}
+    g_neutral_short_red_1:
+      stack: [{object: pin, colors: [yellow, yellow]}]
+      confidence: certain
+    g_neutral_short_red_2:
+      stack: [{object: pin, colors: [yellow, yellow]}]
+      confidence: certain
+    g_neutral_short_blue_1:
+      stack: [{object: pin, colors: [yellow, yellow]}]
+      confidence: certain
+    g_neutral_short_blue_2:
+      stack: [{object: pin, colors: [yellow, yellow]}]
+      confidence: certain
+    g_midfield:
+      stack: [{object: pin, colors: [yellow, yellow]}]
+      confidence: certain
+  toggles:
+    t_red_1: {orientation: yellow, seated: true, contacted_by_robot: false, confidence: certain}
+    t_red_2: {orientation: yellow, seated: true, contacted_by_robot: false, confidence: certain}
+    t_blue_1: {orientation: yellow, seated: true, contacted_by_robot: false, confidence: certain}
+    t_blue_2: {orientation: unknown, seated: unknown, contacted_by_robot: false, confidence: uncertain}
+  robots:
+    r_red_a: {in_midfield: false, contacting_perimeter: false, confidence: certain}
+    r_blue_a: {in_midfield: false, contacting_perimeter: unknown, confidence: uncertain}
+
+- snapshot_id: s_match_end
+  context: match_end
+  video_t: 136.0
+  quality: good
+  goals:
+    g_alliance_red_1:
+      stack:
+        - {object: cup, down_face: opaque}
+        - {object: pin, colors: [yellow, yellow], nested_half: unknown}
+      confidence: probable
+    g_alliance_red_2: {stack: [], confidence: certain}
+    g_alliance_blue_1: {stack: [], confidence: certain}
+    g_alliance_blue_2: {stack: [], confidence: certain}
+    g_neutral_short_red_1:
+      stack:
+        - {object: pin, colors: [yellow, yellow]}
+        - {object: pin, colors: [red, yellow]}
+      confidence: certain
+    g_neutral_short_red_2:
+      stack: [{object: pin, colors: [yellow, yellow]}]
+      confidence: certain
+    g_neutral_short_blue_1:
+      stack:
+        - {object: cup, down_face: opaque}
+        - {object: pin, colors: [blue, yellow]}
+      confidence: probable
+    g_neutral_short_blue_2:
+      stack: [{object: pin, colors: [yellow, yellow]}]
+      confidence: certain
+    g_midfield:
+      stack: [{object: pin, colors: [yellow, yellow]}]
+      confidence: certain
+  toggles:
+    t_red_1: {orientation: red, seated: true, contacted_by_robot: false, confidence: certain}
+    t_red_2: {orientation: yellow, seated: true, contacted_by_robot: false, confidence: certain}
+    t_blue_1: {orientation: yellow, seated: true, contacted_by_robot: false, confidence: certain}
+    t_blue_2: {orientation: yellow, seated: true, contacted_by_robot: false, confidence: certain}
+  robots:
+    r_red_a: {in_midfield: true, confidence: certain}
+    r_blue_a: {in_midfield: false, confidence: certain}

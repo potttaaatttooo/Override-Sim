@@ -9,8 +9,10 @@ current milestone, and layout, and [`docs/roadmap.md`](docs/roadmap.md) for the 
 
 ## Status
 
-**M0, M1, and M2 are complete.** Rules foundation/provenance (M0), deterministic scoring (M1), and
-official starting Field states (M2) all exist. **M3 (observation schema and labeling) is next.**
+**M0, M1, M2, and M3A are complete.** Rules foundation/provenance (M0), deterministic scoring (M1),
+official starting Field states (M2), and the observation schema + tooling (M3A) all exist.
+**M3B (three-match pilot labeling) is next**; M3 overall remains open until M3B/M3C finish.
+No real match video has been reviewed or labeled yet -- M3A closed on a synthetic fixture only.
 Simulation, empirical/statistical modeling, and UI do not exist yet.
 
 ## Setup

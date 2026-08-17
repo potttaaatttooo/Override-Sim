@@ -1,0 +1,54 @@
+schema_version: "m3.0"
+match_key: "v5rc/synthetic_fixture/q000"
+program: v5rc
+event_name: "Synthetic Fixture Event"
+event_code: "RE-V5RC-SYNTH-0001"
+match_id: "Q0"
+match_type: qualification
+date: "2026-08-16"
+manual_version: "1.1"
+
+video:
+  url: "https://example.invalid/synthetic-fixture"
+  retrieved: "2026-08-16"
+  quality: good
+  camera: fixed_full_field
+  period_offsets: {autonomous: 10.0, driver: 30.0}
+  sync_check: {video_t: 40.0, observed_field_clock: "1:45"}
+  timing_precision_s: 0.3
+
+roster:
+  - robot_ref: r_red_a
+    alliance: red
+    team: "1234A"
+    size_class: unknown_v5rc
+    visual_key: "synthetic fixture robot, no real video"
+    cycle_labeled: true
+  - robot_ref: r_blue_a
+    alliance: blue
+    team: "5678B"
+    size_class: unknown_v5rc
+    visual_key: "synthetic fixture robot, no real video"
+    cycle_labeled: false
+
+official_result:
+  red_total: 0
+  blue_total: 0
+  autonomous_bonus_to: unknown
+  awp: {red: false, blue: false}
+  violations_autonomous: []
+  source_url: "https://example.invalid/synthetic-fixture-result"
+  retrieved: "2026-08-16"
+
+coverage:
+  cycle_labeled_alliance: red
+  fully_labeled: true
+  unlabeled_windows: []
+
+labeling:
+  labeler: "synthetic-fixture"
+  label_date: "2026-08-16"
+  pass_id: 1
+  selection_stratum: baseline_clean
+  minutes_spent: 0
+  source_csv_sha256: null
