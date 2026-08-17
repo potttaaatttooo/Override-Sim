@@ -1,14 +1,14 @@
-# M3 — Observation Schema and Manual Match-Labeling Protocol (Revision 2)
+# M3 — Observation Schema and Manual Match-Labeling Protocol (Revision 2.1)
 
 > **STATUS: APPROVED PLANNING BASELINE**
 > **IMPLEMENTATION HAS NOT STARTED**
-> **FINAL M3A CORRECTIONS MAY SUPERSEDE INDIVIDUAL DETAILS**
 
-This document is the approved planning baseline for M3, preserved as a project handoff. No
-`src/vexu_sim/observations/` package, no labeled matches, and no schema documents under
-`docs/design/` exist yet. Nothing in this file has been implemented. Where a later M3A correction
-conflicts with a detail below, the correction wins and this document should be amended rather than
-silently diverged from.
+This document is the definitive, approved planning baseline for M3, preserved as a project
+handoff. No `src/vexu_sim/observations/` package, no labeled matches, and no schema documents
+under `docs/design/` exist yet. Nothing in this file has been implemented. Revision 2.1 folds in
+the final approved M3A corrections directly (§B–§R below; see "Corrections applied in Revision
+2.1" immediately following) rather than leaving them as a note superseding the body text, so a
+fresh implementation session has exactly one consistent source of truth.
 
 ---
 
@@ -38,7 +38,24 @@ letting it dissolve.
 reconciliation as QC · cycle detail for one alliance's two robots · spreadsheet-authored events ·
 pilot target 8 matches, committing only to the first 3 before the schema checkpoint · M3 includes
 models/validator/importer code · `08-labeling-protocol.md` is a design/procedure doc · no ADR for
-the reconstruction choice · `video_t_release` optional but strongly encouraged during the pilot.
+the reconstruction choice · `video_t_release` optional but strongly encouraged during the pilot ·
+`loader_visit` is a robot-activity record, not an Action · `events.source.csv` is committed
+alongside `events.yaml` · `interaction` stays OPTIONAL through M3B, reconsidered at the checkpoint.
+
+---
+
+## Corrections applied in Revision 2.1
+
+Final approved M3A corrections, incorporated throughout §A–§R below (not merely noted here).
+Recorded so the reasoning is not lost.
+
+| # | Change |
+|---|---|
+| **A · LoaderVisit is not an Action** | `loader_visit` is no longer an `action_type`. The true Action types are only `acquire`, `place`, `descore`, `toggle` — each has a real attempt/outcome. `loader_visit` is its own layer-2 robot-activity **interval/container** record type (§B, §C.12): time spent inside a Load Zone, with no `outcome`, `failure_mode`, `retry_of`, or `gap_after` — a zero-object visit is data, not a failed action. The old `within_action` link from a nested `acquire{source: loader}` to its containing visit is replaced by an explicit `loader_visit_id` reference on the `acquire` record. |
+| **B · Action end-time semantics** | The four Action types are interval observations with two real boundaries (§D). `video_t_end` is now `<number> \| "unknown"` — **never `null`**. Duration is DERIVED only when both endpoints are numeric; an `unknown` end leaves duration undefined, not zero (§E.3). `null`/open-ended semantics are reserved for record types where "still ongoing" is itself the observed fact: `MidfieldOccupancy.video_t_exit`, `Incident.video_t_end`, and `LoaderVisit.video_t_exit`. `StateChange` remains the schema's one genuinely instantaneous record (a single `video_t`, no interval at all) and is unaffected. |
+| **C · `gap_after` terminal semantics** | `GapClass` gains a sixth value, `no_next_action`: no later Action exists for this robot in this Period, so there is nothing to classify a gap *to*. "Next Action" is defined deterministically as the next Action for the same robot **and same period**, ordered by `video_t_start` (§F.2). `gap_after` is therefore always present on a cycle-labeled robot's Action — never merely absent for a terminal one. Only `transit` is eligible for M5 travel-time fitting. |
+| **D · M3B pilot breadth** | Added a corpus-level **sourcing preference** to §L.1, layered on top of (not replacing) the three video-quality strata: across the three M3B matches collectively, sourcing should prefer, where practical, coverage of floor acquisition, Loader interaction, Pin placement, Cup placement/stacking, Toggle interaction, Midfield occupancy, at least one failure or retry, and contested activity. Not a requirement that every behavior appear in every match — the M3B checkpoint should test ontology breadth as well as camera-quality robustness. |
+| **E · Remaining decisions settled** | §R is now a closed decisions log, not an open-questions list: M3B step 0 is match sourcing; `events.source.csv` **is** committed alongside `events.yaml` as the human-authored provenance artifact, with `source_csv_sha256` verifiable against the committed file; `interaction` stays OPTIONAL through M3B and is reconsidered at the M3B checkpoint. |
 
 ---
 
@@ -48,7 +65,7 @@ Recorded so the reasoning is not lost and the Revision 1 mistakes are not re-int
 
 | # | Change |
 |---|---|
-| **1 · Traversal** | Retracted "every positive gap is a traversal." Added a single REQUIRED enum `gap_after` on each action of a cycle-labeled robot, classifying the interval to that robot's next action as `transit` / `mixed` / `contested` / `not_observed` / `none`. **Only `transit` gaps become M5 travel-time samples.** Retracted the v1 claim that derived traversal is free and "the largest cost saving" — it costs one enum per action, and even a clean `transit` gap still contains disengagement and approach tails, which §I now states as a known upward bias rather than hiding. |
+| **1 · Traversal** | Retracted "every positive gap is a traversal." Added a single REQUIRED enum `gap_after` on each action of a cycle-labeled robot, classifying the interval to that robot's next action (Revision 2.1 added a sixth value, `no_next_action`, for a robot's period-terminal action — see the Revision 2.1 table below). **Only `transit` gaps become M5 travel-time samples.** Retracted the v1 claim that derived traversal is free and "the largest cost saving" — it costs one enum per action, and even a clean `transit` gap still contains disengagement and approach tails, which §I now states as a known upward bias rather than hiding. |
 | **2 · Possession** | `possession_id` now names a **possession episode**, not an object. `<SG6>` bounds an episode to ≤1 Pin + ≤1 Cup, so `(possession_id, object)` uniquely identifies a held object without global identity — this is what makes `pin_and_cup` and multi-placement work. Two placements from one episode share the id and differ in `object`. **`loader_visit` no longer carries `possession_id`** (it is a container, not a carried object); it carries `departs_possession_id` instead. `descore` carries no possession id at all. |
 | **3 · Object loss** | A drop with no placement attempt is no longer a failed `place`. Added `state_change.change ∈ {object_dropped_in_transit, object_taken_from_robot}` carrying `attributed_to` + `possession_id` + `object`; it closes the episode. Removed `object_lost_in_transit` from `failure_mode` (`dropped` now means *dropped during an attempted placement*, only). Reacquisition opens a new episode and the schema makes no claim it is the same physical object. |
 | **4 · Autonomous** | **Removed `autonomous_routine_completed` entirely.** Video cannot establish intended routine. Autonomous is covered by `period: autonomous` on ordinary records plus the `autonomous_end` snapshot. A team-supplied intended routine would be a separate future record type, never inferred. |
@@ -87,7 +104,7 @@ Loader visits). Three layers, with different jobs, different failure modes, diff
 | Layer | Records | Answers | Failure mode if wrong |
 |---|---|---|---|
 | **1. Boundary state** | `snapshot` ×2 | What was the Field at the end of Autonomous and end of Match? | Breaks score reconstruction (Gate V2) |
-| **2. Robot activity** | `action`, `midfield_occupancy`, `incident`, `interaction` | What did each robot do/experience, when, for how long, with what outcome? | Adds noise/bias to a fitted parameter (M5) |
+| **2. Robot activity** | `action`, `loader_visit`, `midfield_occupancy`, `incident`, `interaction` | What did each robot do/experience, when, for how long, with what outcome? | Adds noise/bias to a fitted parameter (M5) |
 | **3. Un-attempted change** | `state_change` | What changed that no robot *attempted*? | Breaks event→snapshot reconciliation |
 
 Layer 3 is "no attempt was made," not "no robot was involved" — a drop in transit and an opponent
@@ -115,22 +132,25 @@ as **DER** so M5 knows they exist and M3 knows not to store them.
 
 ## B. Record types
 
-Seven record types, three files per labeled match.
+Eight record types, three files per labeled match.
 
 | # | Record | File | Cardinality | Layer |
 |---|---|---|---|---|
 | 1 | `match` (metadata, roster, coverage, official result) | `match.yaml` | 1 | metadata |
 | 2 | `snapshot` | `snapshots.yaml` | 2 | 1 |
-| 3 | `action` — 5 types: `acquire`, `loader_visit`, `place`, `descore`, `toggle` | `events.yaml` | ~40–120 | 2 |
-| 4 | `midfield_occupancy` (state interval, no outcome) | `events.yaml` | 0–12 | 2 |
-| 5 | `incident` | `events.yaml` | 0–8 | 2 |
-| 6 | `interaction` (OPTIONAL) | `events.yaml` | 0–10 | 2 |
-| 7 | `state_change` | `events.yaml` | 0–15 | 3 |
+| 3 | `action` — 4 types: `acquire`, `place`, `descore`, `toggle` | `events.yaml` | ~30–100 | 2 |
+| 4 | `loader_visit` (interval/container, no outcome; §C.12) | `events.yaml` | 0–20 | 2 |
+| 5 | `midfield_occupancy` (state interval, no outcome) | `events.yaml` | 0–12 | 2 |
+| 6 | `incident` | `events.yaml` | 0–8 | 2 |
+| 7 | `interaction` (OPTIONAL) | `events.yaml` | 0–10 | 2 |
+| 8 | `state_change` | `events.yaml` | 0–15 | 3 |
 
-`midfield_occupancy`, `incident` and `interaction` are separate from `action` because an action is
-*something a robot attempted*: an occupancy interval has no success criterion, a tip-over is not an
+`loader_visit`, `midfield_occupancy`, `incident` and `interaction` are separate from `action`
+because an action is *something a robot attempted*: a Load Zone visit and an occupancy interval
+have no success criterion (a zero-object visit is data, not a failure), a tip-over is not an
 attempt, and a two-robot engagement has two subjects. Folding any of them in would overload
-`robot_ref` and force `outcome` onto records where it has no observable meaning.
+`robot_ref` and force `outcome`/`failure_mode`/`retry_of`/`gap_after` onto records where none has
+observable meaning.
 
 ---
 
@@ -139,6 +159,9 @@ attempt, and a two-robot engagement has two subjects. Folding any of them in wou
 **Conventions.**
 - **Req**: `REQ` (key must be present) · `REQ-IF <cond>` (required only under a stated condition; the validator enforces both directions) · `OPT` · `DER` (derived, never stored) · `DEF` (deferred).
 - **`REQ` does not mean "known."** `unknown` is a legal value for any REQ field unless stated otherwise. `null`/absent means *not applicable to this record*. These are different facts and validation enforces the distinction; a required enum may never be `null` when its condition holds.
+- **Action interval endpoints are numeric-or-`unknown`, never `null`** (§E.3). `null` is reserved
+  for record types where "still ongoing" is itself the observed fact — `MidfieldOccupancy`,
+  `Incident`, and `LoaderVisit` — not for `acquire`/`place`/`descore`/`toggle`.
 - **Video**: `Y` reliably readable from ordinary event/broadcast footage · `P` partial, frequently `unknown` · `N` usually not (nothing `N` is REQ).
 - All times are **video seconds** (float, 0.1 s). Match-clock time is DER (§E.1).
 
@@ -270,27 +293,27 @@ unreliable. A recorded exclusion, not an oversight.
 
 ### C.3 `action` — common core
 
-Applies to actions only (`acquire`, `loader_visit`, `place`, `descore`, `toggle`). The other
+Applies to actions only (`acquire`, `place`, `descore`, `toggle`). `loader_visit` is **not** an
+Action — it is its own robot-activity interval/container record type; see §C.12. The other
 layer-2 record types have their own, smaller cores.
 
 | Field | Type / values | Req | Definition, when recorded, why | Video |
 |---|---|---|---|---|
 | `record_type` | `action` | REQ | Discriminator. | — |
-| `id` | unique string | REQ | e.g. `a_017`. Referenced by `retry_of`, `within_action`, `caused_by_action`. | — |
-| `action_type` | `acquire \| loader_visit \| place \| descore \| toggle` | REQ | §D. | Y |
+| `id` | unique string | REQ | e.g. `a_017`. Referenced by `retry_of`, `caused_by_action`. | — |
+| `action_type` | `acquire \| place \| descore \| toggle` | REQ | §D. | Y |
 | `robot_ref` | roster ref | REQ | | Y |
 | `period` | `autonomous \| driver` | REQ | The answer to "don't duplicate the ontology for autonomous" — the same records carry a period. | Y |
 | `video_t_start` | float | REQ | Type-specific boundary, defined per type in §D — never left to labeler taste. | Y |
-| `video_t_end` | float \| `null` | REQ | `null` ⇒ instantaneous; duration **undefined**, not zero. `t_end == t_start` is rejected (§E.3). | Y |
+| `video_t_end` | float \| `unknown` | REQ | **Numeric or `unknown` — never `null`.** All four Action types are interval observations with real start/completion boundaries (§D); none is genuinely instantaneous, so the old `null`-as-instantaneous case is retracted for Actions (§E.3). `duration` is DERIVED only when both endpoints are numeric; `unknown` leaves it undefined, not zero. `t_end == t_start` (when both numeric) is rejected. | Y |
 | `region` | region enum (§F.1) | REQ | The sole spatial fact stored. | Y |
-| `gap_after` | `transit \| mixed \| contested \| not_observed \| none` | REQ-IF the robot is `cycle_labeled`; else absent | Classifies the interval from this action's end to the same robot's next action's start. Only `transit` gaps are eligible as M5 travel-time samples (§F.2). | Y/P |
+| `gap_after` | `transit \| mixed \| contested \| not_observed \| none \| no_next_action` | REQ-IF the robot is `cycle_labeled`; else absent | Classifies the interval from this action's end to the same robot's **next Action in the same period** (defined deterministically by `video_t_start` order, §F.2). `no_next_action` is used when no later Action exists — added in Revision 2.1 so a period-terminal Action is never merely missing this field. Only `transit` gaps are eligible as M5 travel-time samples. | Y/P |
 | `outcome` | `success \| fail \| abandoned \| unknown` | REQ | `success` = the type's completion criterion (§D) met. `fail` = attempted, not met. `abandoned` = broke off before the criterion could be evaluated, and departed. There is deliberately **no `interrupted`** — that requires inferring cause; `contested` carries opponent involvement without claiming causation. | Y/P |
 | `failure_mode` | enum (§G.1) | REQ-IF `outcome != success` | **Outcome-shaped, never cause-shaped.** | Y/P |
 | `contested` | `none \| opponent_contact \| opponent_block \| congestion_opponent \| congestion_partner \| field_element \| unknown` | REQ | §G.2. Lets M5 stratify clean vs contested rather than pretending a delay magnitude is observable. | Y/P |
 | `contested_robot_ref` | roster ref \| null | OPT | Which robot, when `contested != none` and identifiable. | Y |
 | `possession_id` | string | REQ-IF `action_type ∈ {acquire, place}`; **absent otherwise** | Episode id, not an object id (§C.7). | Y |
 | `retry_of` | action id \| null | REQ | Set when this repeats an attempt at the same target after a failure (§E.5). | Y |
-| `within_action` | action id \| null | OPT; only `acquire` inside `loader_visit` | | Y |
 | `confidence` | `certain \| probable \| uncertain` | REQ | §C.8. Per record, not per field. | — |
 | `notes` | string | OPT | Never parsed; read during QC and schema revision. | — |
 | `duration`, `match_clock_t`, `is_endgame`, `possession_contents`, `cycle_time` | — | **DER** | Never stored (§E.1, §E.2, §C.7). | — |
@@ -302,17 +325,7 @@ layer-2 record types have their own, smaller cores.
 | `source` | `floor \| loader \| goal_stack \| opponent_robot \| unknown` | REQ | The architecture-relevant distinction: floor and Loader acquisition are different mechanisms with different VEX U value (§I). | Y |
 | `object` | `pin \| cup \| pin_and_cup \| unknown` | REQ | `pin_and_cup` = both in one motion, legal under `<SG6>`. **Whether Loaders present *nested* Pin/Cup combinations is a `verify` item for M3B, not an asserted rule fact** — the enum value exists so the labeler can record it if seen. | Y/P |
 | `object_colors` | `[color, color]` \| `unknown` | OPT | Rarely worth chasing mid-cycle. | P |
-
-**`loader_visit`** — a container, never a carried object.
-
-| Field | Type / values | Req | Definition / why | Video |
-|---|---|---|---|---|
-| `loader_ref` | `loader_red_1 \| loader_red_2 \| loader_blue_1 \| loader_blue_2` | REQ | Four Loaders, two per Alliance (`field.yaml: inventory.loaders`). **These ids are M3-local vocabulary** — the rules give the count, not names (§P). | Y |
-| `objects_acquired` | int \| `unknown` | REQ | Objects the robot left holding. Visit ÷ objects is the throughput number VEX U cares about. `0` is legal and meaningful (a pass-through). | Y |
-| `objects_types` | list of `pin`/`cup` | OPT | | P |
-| `failed_grabs` | int \| `unknown` | REQ | Visibly failed grabs within the visit — cheaper and more reliable than timing each. Individual grabs may additionally be nested `acquire` records via `within_action` when video permits. | P |
-| `departs_possession_id` | possession id \| `null` \| `unknown` | REQ | The episode the robot departed the Load Zone holding — `null` when it left empty-handed, and it may name an episode *opened before* the visit (robot arrived holding a Pin, left holding Pin+Cup). A container links to an episode; it does not claim to be one. | Y |
-| `video_t_first_object_available` | float \| `unknown` | OPT | When a Match Load first became visibly available. **The only field separating human-Loader delay from robot delay**, and frequently `unknown` (robot occludes the Loader). When `unknown`, visit duration is a *joint* human+robot quantity and §I forbids attributing it to the robot. | P |
+| `loader_visit_id` | `loader_visit` id \| null | OPT; only meaningful when `source == loader` | Links this grab to its containing `loader_visit` record (§C.12) when video permits — **replaces the old `within_action` relationship** (Revision 2.1). Never required: visit-level throughput is available from `loader_visit.objects_acquired` even when individual grabs aren't nested. | Y/P |
 
 **`place`**
 
@@ -519,7 +532,7 @@ There is **no `capable` field anywhere.** A capability is a *query over records*
 | Capability | Query |
 |---|---|
 | Floor Pin / Cup acquisition | `acquire{source: floor, object: …}` |
-| Loader Pin / Cup acquisition | `acquire{source: loader, …}` within `loader_visit` |
+| Loader Pin / Cup acquisition | `acquire{source: loader, object: …}` (optionally linked to its `loader_visit` via `loader_visit_id`), or `loader_visit.objects_types` when grabs aren't individually nested |
 | Nested Pin+Cup handling | `acquire{object: pin_and_cup}` |
 | Short Goal scoring | `place{target_goal_ref ∈ alliance ∪ neutral_short}` |
 | Tall Goal scoring | `place{target_goal_ref = g_midfield}` — note there is exactly **one** neutral tall Goal (`field.yaml: goals.breakdown.neutral_tall: 1`), so "tall Goal" and "Midfield Goal" scoring are the same capability |
@@ -552,12 +565,69 @@ unknown}` REQ; `subject_region` **OPT** (regions are only labeled for cycle-labe
 cost is *derived in M5* by contrasting contested and uncontested distributions of the same action
 type — never observed, because causality is not visible in video.
 
+**Decided:** `interaction` stays OPTIONAL through M3B. Its status — including whether
+`heavy_defense` (M3C, stratum 5, §L.1) requires promoting it to REQUIRED — is reconsidered at the
+M3B schema-revision checkpoint (§Q), with actual pilot counts in hand rather than a guess made now.
+
+### C.12 `loader_visit` — a robot-activity interval, not an Action
+
+```yaml
+- record_type: loader_visit
+  id: lv_005
+  robot_ref: r_red_a
+  period: driver
+  video_t_enter: 118.2
+  video_t_exit: 124.6              # null = still in the Load Zone when the period ended
+  loader_ref: loader_red_1
+  objects_acquired: 2
+  objects_types: [pin, cup]
+  failed_grabs: 1
+  departs_possession_id: "r_red_a#9"
+  video_t_first_object_available: unknown
+  contested: none
+  confidence: certain
+```
+
+A `loader_visit` is an interval a robot spends inside a Load Zone — a **container**, not an
+attempt. It carries no `outcome`, `failure_mode`, `retry_of`, or `gap_after`: a zero-object visit
+(`objects_acquired: 0`) is a legitimate, informative record (a pass-through, or a wait that
+produced nothing), not a failed action forcing an artificial success/fail judgement onto an
+interval — see §A.3's granularity rule. This is why `loader_visit` is not in the `action` family
+in this revision (Revision 2.1, correction A); its start/end boundaries are unchanged from earlier
+revisions and are defined in §D.2.
+
+| Field | Type / values | Req | Definition / why | Video |
+|---|---|---|---|---|
+| `id` | unique string | REQ | e.g. `lv_005`. Referenced by an `acquire`'s `loader_visit_id` (§C.3). | — |
+| `robot_ref` | roster ref | REQ | | Y |
+| `period` | `autonomous \| driver` | REQ | | Y |
+| `video_t_enter` | float | REQ | The robot first enters the Load Zone region — purely positional, no intent test (§D.2). | Y |
+| `video_t_exit` | float \| `null` \| `unknown` | REQ | The robot leaves the Load Zone region. `null` = still inside when the Period ended — the same open-ended pattern as `MidfieldOccupancy.video_t_exit` and `Incident.video_t_end` (§E.3), because a Load Zone visit is an interval/container record, not an Action. | Y |
+| `loader_ref` | `loader_red_1 \| loader_red_2 \| loader_blue_1 \| loader_blue_2` | REQ | Four Loaders, two per Alliance (`field.yaml: inventory.loaders`). **M3-local vocabulary** — the rules give the count, not names (§P). | Y |
+| `objects_acquired` | int \| `unknown` | REQ | Objects the robot left holding. Visit ÷ objects is the throughput number VEX U cares about. `0` is legal and meaningful. | Y |
+| `objects_types` | list of `pin`/`cup` | OPT | | P |
+| `failed_grabs` | int \| `unknown` | REQ | Visibly failed grabs within the visit — cheaper and more reliable than timing each. Individual grabs may additionally be linked via a nested `acquire{source: loader}` record's `loader_visit_id`. | P |
+| `departs_possession_id` | possession id \| `null` \| `unknown` | REQ | The episode the robot departed the Load Zone holding — `null` when it left empty-handed, and it may name an episode *opened before* the visit (robot arrived holding a Pin, left holding Pin+Cup). A container links to an episode; it does not claim to be one (§C.7). | Y |
+| `video_t_first_object_available` | float \| `unknown` | OPT | When a Match Load first became visibly available. **The only field separating human-Loader delay from robot delay**, and frequently `unknown` (robot occludes the Loader). When `unknown`, visit duration is a *joint* human+robot quantity and §I forbids attributing it to the robot. | P |
+| `contested` | same enum as Action `contested` (§C.3) | REQ | Whether another robot's presence at/around the Loader affected this visit — relevant to the `loader_heavy` stratum's queueing question (§L.1). | Y/P |
+| `confidence` | `certain \| probable \| uncertain` | REQ | §C.8. | — |
+| `notes` | string | OPT | | — |
+
+**No `outcome`, no `failure_mode`, no `retry_of`, no `gap_after`, no `possession_id`, no
+`region`.** `region` is redundant here — `loader_ref` already identifies the specific Load Zone.
+`gap_after` in particular has no meaning: it is defined on **Actions**, classifying the gap to the
+robot's *next Action*, and a `loader_visit` is not one and is never itself a "next Action."
+
 ---
 
 ## D. Action ontology — boundaries
 
-Each type states **start**, **completion criterion**, and **end** explicitly, because these three
-sentences are where agreement is actually won or lost.
+Each of the four true Action types (`acquire`, `place`, `descore`, `toggle`) states **start**,
+**completion criterion**, and **end** explicitly, because these three sentences are where
+agreement is actually won or lost. **There is deliberately no D.2 in this revision:**
+`loader_visit` is not an Action (Revision 2.1, correction A), so its boundary definition lives with
+its record type at §C.12 rather than here; the numbering gap (D.1, D.3, D.4, D.5, D.6) is kept
+exactly as-is so every existing `§D.n` cross-reference in this document stays correct.
 
 ### D.1 `acquire`
 - **Start:** first contact between the robot (any part, including an intake) and the target object.
@@ -572,16 +642,14 @@ sentences are where agreement is actually won or lost.
 - **Loss after control:** the `acquire` stays `success`; the loss is a possession-affecting
   `state_change` (§C.4) or, if a placement was attempted, `place{failure_mode: dropped}`.
 
-### D.2 `loader_visit` — purely positional
-- **Start:** the robot first enters the Load Zone region. **No intent test.**
-- **End:** the robot leaves the Load Zone region.
-- **Completion (success):** `objects_acquired ≥ 1`. A pass-through with zero acquisitions is a
-  legitimate record with `outcome: fail` or `abandoned` — that is data, not an error.
-- Individual grabs may be nested `acquire` records (`within_action`, `source: loader`) — never
-  REQUIRED, RECOMMENDED when `video.quality == good`. A deliberate quality-graded design: visit
-  throughput from every match, per-grab timing only from the good ones.
-- Human vs robot delay is separable only where `video_t_first_object_available` is legible;
-  otherwise the schema records a joint quantity and §I forbids attributing it to the robot.
+*(`loader_visit`'s boundaries — purely positional, no intent test: start is the robot first
+entering the Load Zone region, end is the robot leaving it — are defined with the rest of its
+schema at §C.12, since it is not an Action. Individual grabs may be linked via a nested
+`acquire{source: loader}` record's `loader_visit_id` — never REQUIRED, RECOMMENDED when
+`video.quality == good`, giving visit-level throughput from every match and per-grab timing only
+from the good ones. Human vs robot delay is separable only where
+`video_t_first_object_available` is legible; otherwise the schema records a joint quantity and §I
+forbids attributing it to the robot.)*
 
 ### D.3 `place`
 - **Start:** the last transition of the robot's drive base from transit motion to a stop or slow
@@ -651,9 +719,24 @@ rather than assuming 10 s. This is a `verify` item (re-read Section 6 / `<VUT>` 
 definition) — **not an assumption, and not an `open` question until steps 1–2 of the rule-gap
 workflow have been done.** It does not block M3, whose corpus is V5RC.
 
-### E.3 Instantaneous events
-`video_t_end: null`; duration **undefined**, not zero. `t_end == t_start` is rejected, because it
-would be indistinguishable from a zero-length measurement.
+### E.3 Action endpoints: numeric or `unknown`, never `null` (Revision 2.1)
+Every Action (`acquire`, `place`, `descore`, `toggle`) is an interval observation with two real
+boundaries defined in §D — none of the four is genuinely instantaneous once its start/completion
+criteria are read literally (even a fast `toggle` flip has a contact-to-settle duration).
+`video_t_end` is therefore `<number> | "unknown"` — **never `null`** — and `duration` is DERIVED
+only when both endpoints are numeric; an `unknown` end leaves duration undefined, not zero.
+`t_end == t_start` (when both are numeric) is rejected, because it would be indistinguishable from
+a genuine zero-length measurement this schema does not model.
+
+`null`/open-ended semantics are reserved for record types where "still ongoing" is itself the
+observed fact, not a labeling gap: `MidfieldOccupancy.video_t_exit` (§C.6, still in the Midfield
+when the Period ended), `Incident.video_t_end` (§C.5, unresolved at match end), and
+`LoaderVisit.video_t_exit` (§C.12, still in the Load Zone when the Period ended — `loader_visit` is
+an interval/container record, not an Action, so it follows this pattern rather than §D's). Neither
+of these is "instantaneous"; both are genuinely open at one end and both use `null` to say so.
+
+`StateChange` remains the schema's one genuinely instantaneous record type — a single `video_t`,
+no start/end pair at all (§C.4) — and is unaffected by this section.
 
 ### E.4 Overlapping actions
 Permitted and **not required to be annotated** — a robot may intake a Cup while driving to place a
@@ -702,21 +785,36 @@ routinely contain waiting for a Loader, searching for an object, hovering while 
 Goal, idling on defense, or repositioning unrelated to the next task. Fitting a travel-time
 distribution over all of them would produce a number that is not travel time.
 
-**Mechanism — one enum, filled while already watching that robot.** Every action of a cycle-labeled
-robot carries `gap_after`, classifying the interval to that robot's next action:
+**Mechanism — one enum, filled while already watching that robot.** Every Action of a cycle-labeled
+robot carries `gap_after`, classifying the interval to that robot's **next Action**. "Next Action"
+is defined deterministically: the next Action for the *same robot*, in the *same period*, ordered
+by `video_t_start`. (A `loader_visit` is not an Action — §C.12 — and is never itself a "next
+Action" for this purpose, though time spent inside one is exactly the kind of thing a `mixed` gap
+around it would describe.)
 
 | Value | Definition |
 |---|---|
-| `transit` | The robot drives essentially continuously from where it finished to where it begins the next action: no stop longer than ~1 s, no opponent interaction, no visible searching or hesitation, no other task attempted. |
-| `mixed` | Anything else observed in the gap — waiting, searching, hovering, idling, repositioning unrelated to the next action. |
-| `contested` | The gap contained an opponent interaction that impeded movement (normally paired with an `interaction` record). |
-| `not_observed` | Camera cut or occlusion covering part of the gap. |
-| `none` | No positive gap: the actions abut or overlap. |
+| `transit` | A later Action exists, and the robot drives essentially continuously from where it finished to where it begins that Action: no stop longer than ~1 s, no opponent interaction, no visible searching or hesitation, no other task attempted. |
+| `mixed` | A later Action exists, and the gap contains anything else observed — waiting, searching, hovering, idling, repositioning unrelated to the next Action. |
+| `contested` | A later Action exists, and the gap contained an opponent interaction that impeded movement (normally paired with an `interaction` record). |
+| `not_observed` | A later Action exists, but a camera cut or occlusion covers part of the gap. |
+| `none` | A later Action exists, but the Actions abut or overlap — no positive gap to classify. |
+| `no_next_action` | **Added in Revision 2.1.** No later Action exists for this robot in this Period — this was that robot's last labeled Action of the Period, so there is nothing to classify a gap *to*. |
 
 **Only `gap_after: transit` intervals are eligible as M5 travel-time samples.** Everything else is
-retained (it is real data about where time goes) but excluded from the travel distribution.
+retained (it is real data about where time goes, or in `no_next_action`'s case, about where the
+robot's labeled activity for the Period ended) but excluded from the travel distribution.
 
-**Cost:** one enum per action for two robots per match — a few dozen cells, filled during the pass
+**`gap_after` is always present on a cycle-labeled robot's Action — never merely absent for a
+terminal one.** The REQ-IF condition is unchanged ("the robot is `cycle_labeled`," §C.3); what
+Revision 2.1 fixed is that a robot's period-terminal Action previously had no defined value to put
+there, which made a genuinely-last Action indistinguishable from a validation gap. Because "is
+there a next Action" is a data fact rather than a judgement, the importer/loader recomputes
+`no_next_action` deterministically from the ordered per-robot, per-period Action list at import
+time and treats a manually entered value that disagrees as an error (§K.2, §P) — the labeler does
+not have to know mid-session whether an Action will turn out to be the robot's last one.
+
+**Cost:** one enum per Action for two robots per match — a few dozen cells, filled during the pass
 in which the labeler already knows both endpoints. Not free, but far below labeling traversal
 actions everywhere.
 
@@ -951,8 +1049,18 @@ column order (core → per-type groups) and frozen panes, both specified in the 
 **Importer contract:** deterministic (same CSV → byte-identical YAML, stable key order); **refuses
 to emit on any validation error** rather than writing partial output; stamps
 `labeling.source_csv_sha256` into `match.yaml` so the canonical YAML is traceable to the sheet it
-came from. The CSV is an authoring artifact and YAML is canonical — but see §R.2 on whether the
-sheet should nonetheless be committed alongside.
+came from. The importer also **recomputes `gap_after: no_next_action` deterministically** from the
+ordered per-robot, per-period Action list rather than trusting whatever the labeler entered for a
+robot's chronologically-last Action of a period, and treats a manually entered value that disagrees
+as a validation error (§F.2) — "is there a next Action" is a data fact, not a judgement, once the
+whole sheet is in.
+
+**Decided (Revision 2.1): `events.source.csv` is committed** alongside the canonical
+`events.yaml`, one per labeled match (§N). It is the actual human-authored provenance artifact —
+committing it costs nothing and is what makes `source_csv_sha256` verifiable by a future reader
+(re-hash the committed file; a mismatch is a validation error, not a warning). This does not make
+it canonical: `events.yaml` remains the record of truth for every downstream reader, and no loader
+in this package ever reads the CSV directly.
 
 **No materially better low-complexity design was found.** The one alternative worth naming is a
 tiny structured text format for events (one line per record, `key=value` pairs) that would avoid a
@@ -980,9 +1088,23 @@ exercised.
 | 8 | `strong_autonomous` | Stresses auton labeling and the `autonomous_end` snapshot / AWP. | M3C |
 | 9–10 | `failure_rich`, `late_season` | Stretch only if per-match time lands at the low end. | M3C |
 
-**M3B's three are strata 1–3 deliberately:** they vary *video quality*, not strategy. The schema
-checkpoint needs to know first whether the ontology is labelable at all across the quality range —
-strategy variety is worth little if the fields themselves do not survive a bad camera angle.
+**M3B's three are strata 1–3 deliberately:** their *defining* axis of variation is video quality,
+not strategy — the schema checkpoint needs to know first whether the ontology is labelable at all
+across the quality range, since behavioral breadth is worth little if the fields themselves do not
+survive a bad camera angle. This is the primary selection axis, not the only thing that matters
+when choosing among otherwise-eligible candidates within each stratum — see the breadth preference
+immediately below, which is a secondary criterion layered on top of it.
+
+**Corpus-level breadth preference (Revision 2.1, correction D) — not a per-match requirement.**
+Across the three M3B matches collectively — not necessarily within any single one — sourcing should
+prefer, where practical, a combination that exercises: floor acquisition, Loader interaction, Pin
+placement, Cup placement/stacking, Toggle interaction, Midfield occupancy, at least one failure or
+retry, and contested activity. This is layered on top of, not a replacement for, the three
+video-quality strata above and the hard inclusion criteria below — it exists so the M3B schema
+checkpoint tests ontology **breadth** as well as camera-quality robustness; three clean matches
+that never exercise `descore` or `toggle` would validate the wrong thing. If a behavior cannot be
+found within three matches without sacrificing a quality stratum, it is deferred to M3C rather than
+forcing a fourth M3B match.
 
 ### L.2 Hard inclusion criteria
 - **Published, retrievable official score** — non-negotiable.
@@ -1044,7 +1166,7 @@ data/observations/
       match.yaml                         # hand-authored
       snapshots.yaml                     # hand-authored
       events.yaml                        # importer output (canonical)
-      events.source.csv                  # authoring artifact (see §R.2)
+      events.source.csv                  # human-authored provenance artifact; committed, not canonical (§K.2, §R)
       relabel/                           # pass_id: 2, M3C only
   qc/
     reconciliation-<match_key>.md
@@ -1096,9 +1218,11 @@ every QC disagreement).
 - `__init__.py` — public exports, mirroring the `sources`/`rules`/`field_setup` package style.
 - `models.py` — frozen dataclasses + enums: `MatchObservation`, `VideoMetadata`, `RobotEntry`,
   `OfficialResult`, `Coverage`, `Snapshot`, `GoalSnapshot`, `StackItem`, `ToggleSnapshot`,
-  `RobotSnapshot`, `Action`, `MidfieldOccupancy`, `StateChange`, `Interaction`, `Incident`, plus
-  `ActionType`, `Region`, `GapClass`, `Outcome`, `FailureMode`, `Contested`, `Confidence`,
-  `IncidentType`, `ChangeType`.
+  `RobotSnapshot`, `Action`, `LoaderVisit`, `MidfieldOccupancy`, `StateChange`, `Interaction`,
+  `Incident`, plus `ActionType` (now `acquire | place | descore | toggle` — no `loader_visit`,
+  Revision 2.1), `Region`, `GapClass` (now six values, including `no_next_action`), `Outcome`,
+  `FailureMode`, `Contested`, `Confidence`, `IncidentType`, `ChangeType`. `LoaderVisit` is a
+  top-level dataclass, not a variant nested in `Action`'s per-type details.
 - `refs.py` — **the single boundary with existing packages.** Derives canonical ids from the public
   APIs below, and is the one place the genuinely M3-local vocabulary (Loader ids, Load-Zone region
   ids) is declared and marked as such.
@@ -1128,12 +1252,20 @@ modifications to `model/`, `scoring/`, `field_setup/`, `rules/`, `sources/`. No 
 - `size_class == unknown_v5rc` whenever `program == v5rc`.
 - Every enum legal; **every `REQ-IF` condition checked in both directions** (present when required,
   absent when not applicable) — this is the rule that catches "required fields that don't apply."
-- `video_t_end > video_t_start`, or `null`; equality rejected.
-- Every `robot_ref`, `retry_of`, `within_action`, `caused_by_action`, `departs_possession_id`
-  resolves; `retry_of` acyclic.
+- Action `video_t_end` is a number or `unknown`; `null` is rejected for `acquire`/`place`/`descore`/
+  `toggle` (§E.3). `video_t_end > video_t_start` when both are numeric; equality rejected.
+  `LoaderVisit.video_t_exit`, `MidfieldOccupancy.video_t_exit`, and `Incident.video_t_end` may be
+  `null` (open-ended), since none of the three is an Action.
+- `gap_after` present iff the robot is `cycle_labeled` (including `no_next_action` on that robot's
+  chronologically-last Action of the Period). The loader recomputes `no_next_action` deterministically
+  from the ordered per-robot, per-period Action list and treats a manually entered value that
+  disagrees as an error, since "is there a next Action" is a data fact, not a judgement (§F.2).
+- Every `robot_ref`, `retry_of`, `caused_by_action`, `loader_visit_id`, `departs_possession_id`
+  resolves; `retry_of` acyclic; `loader_visit_id` resolves to a `LoaderVisit`, never to an `Action`.
 - Possession episodes: per-robot, non-interleaved; `place.object` present in the open episode
-  (warning); duplicate object type in one episode (warning, `<SG6>`); `possession_id` absent on
-  `loader_visit` / `descore` (error).
+  (warning); duplicate object type in one episode (warning, `<SG6>`); `possession_id` never appears
+  on `LoaderVisit` (it has no such field) or on `descore` (present in the schema but always absent)
+  — a value on either is an error.
 - `target_goal_ref` / `toggle_ref` among the ids `field_setup` actually builds; `loader_ref` /
   `region` among `refs.py`'s declared vocabulary.
 - Both snapshots present; all 9 Goals, 4 Toggles and every rostered robot present in each.
@@ -1143,9 +1275,12 @@ modifications to `model/`, `scoring/`, `field_setup/`, `rules/`, `sources/`. No 
   delta; an event inside an `unlabeled_window`; an episode still open at match end.
 
 **Tests (new)**
-- `tests/fixtures/observations/` — a small **synthetic** match (2 robots, ~15 events, both
+- `tests/fixtures/observations/` — a small **synthetic** match (2 robots, ~15–18 events, both
   snapshots, one deliberate `pin_and_cup` episode with two placements, one transport drop, one
-  `descore{obscure}`) so the suite never depends on the pilot corpus existing.
+  `descore{obscure}`, one `loader_visit` with `objects_acquired: 0` to prove a pass-through is not
+  a failure, one `acquire{source: loader}` linked via `loader_visit_id`, and at least one robot's
+  period-terminal Action carrying `gap_after: no_next_action`) so the suite never depends on the
+  pilot corpus existing.
 - `tests/test_observations.py` — one test per validation rule, plus reconciliation-math tests
   (especially the `obscure` +1 case), importer determinism, and a test that every committed pilot
   match loads and validates.
@@ -1167,7 +1302,14 @@ modifications to `model/`, `scoring/`, `field_setup/`, `rules/`, `sources/`. No 
    `descore{method: obscure}` contributing **+1**, and a test covers `unknown` endpoints producing
    `indeterminate` rather than an assumed value.
 5. Importer is deterministic and refuses to emit on error; round-trip test on the synthetic fixture.
-6. `pytest` green. **M3A closes with zero labeled matches.**
+6. `LoaderVisit` is implemented and validated as its own record type, never as an `Action` variant;
+   `acquire.loader_visit_id` resolves to it. `GapClass` includes `no_next_action`, and the
+   loader/importer derives it deterministically from the ordered per-robot, per-period Action list
+   rather than trusting a manually entered value (§F.2). Action `video_t_end` accepts only a number
+   or `unknown` — never `null` — and a test confirms the importer rejects `null` there while still
+   accepting it for `LoaderVisit.video_t_exit`, `MidfieldOccupancy.video_t_exit`, and
+   `Incident.video_t_end`.
+7. `pytest` green. **M3A closes with zero labeled matches.**
 
 ### M3B — Three-match pilot + schema checkpoint
 0. **Match sourcing** — strata 1–3 (`baseline_clean`, `typical_broadcast`, `poor_video`), each with
@@ -1182,7 +1324,9 @@ modifications to `model/`, `scoring/`, `field_setup/`, `rules/`, `sources/`. No 
    the revised schema if the change is not backward-compatible.
 5. Specific questions M3B must answer: is the `place` start boundary usable (§D.3)? Is `gap_after`
    reproducible (§F.2)? Is `down_face` readable often enough for the score band to be tight (§H.2)?
-   Do Loaders present nested Pin/Cup combinations (`verify` item, §C.3)?
+   Do Loaders present nested Pin/Cup combinations (`verify` item, §C.3)? Did the three matches
+   collectively reach the §L.1 breadth preference, and if not, which behaviors are deferred to
+   M3C?
 
 ### M3C — Expanded pilot + QC
 1. Five further matches (strata 4–8) after the schema stabilizes; **8 total**.
@@ -1206,16 +1350,20 @@ richer data into a superset schema without invalidating a single hand-labeled re
 
 ---
 
-## R. Remaining decisions
+## R. Decisions log
 
-1. **Match sourcing status.** Are there already candidate V5RC Override videos with published
-   scores, or does M3B genuinely start at step 0? If sourcing is needed it wants its own budget —
-   `poor_video` in particular requires deliberate searching, not whatever is on the front page.
-   (Everything else about sourcing is settled: it is M3B step 0.)
-2. **Commit `events.source.csv` alongside the canonical YAML?** Recommend **yes** — it is the
-   actual human-authored artifact, it costs nothing, and it makes `source_csv_sha256` verifiable by
-   a future reader. This does not make it canonical; YAML remains the record of truth. Say no and
-   the sha becomes a provenance stub pointing at a file nobody has.
-3. **Should `interaction` stay OPTIONAL through M3B?** Recommend keeping it OPTIONAL for the three
-   pilot matches and deciding at the checkpoint with actual counts. If `heavy_defense` (M3C, stratum
-   5) turns out to need it as REQUIRED, that is a clean schema bump rather than a guess made now.
+Every item below was open in an earlier revision and is now settled (Revision 2.1, correction E).
+Kept here as a record of what was decided and why, not as a checklist — **there are no remaining
+"decision needed before M3A" items.**
+
+1. **Match sourcing.** M3B begins with match sourcing as its own Step 0 (§Q, M3B item 0) — there is
+   no assumption that candidate V5RC Override videos are already in hand. `poor_video` in
+   particular needs deliberate searching, not whatever is on the front page.
+2. **`events.source.csv` is committed** alongside the canonical `events.yaml`, one per labeled
+   match (§N, §K.2). It is the human-authored provenance artifact; `events.yaml` remains canonical
+   for every downstream reader. `labeling.source_csv_sha256` (§C.1) must be verifiable by re-hashing
+   the committed CSV — a mismatch is a validation error, not a warning.
+3. **`interaction` stays OPTIONAL through M3B** (§C.11). Its status — including whether
+   `heavy_defense` (M3C, stratum 5, §L.1) requires promoting it to REQUIRED — is reconsidered at the
+   M3B schema-revision checkpoint (§Q), with actual pilot counts in hand rather than a guess made
+   now.

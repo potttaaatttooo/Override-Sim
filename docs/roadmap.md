@@ -16,12 +16,14 @@ entrenched guessed priors to unlearn later.
   Starting Orientation") and Figures FO-2/VEXU-1/VEXU-2; the VEX U-vs-V5RC layout question is
   resolved in `docs/design/06-starting-field-states.md`. Inventory-sum and per-color-combination
   tests in `tests/test_starting_state.py`.
-- **M3 — Observation schema and labeling protocol.** Define the label vocabulary (see sketch
-  below) and labeling protocol; hand-label a pilot set of 5-10 real V5RC Override matches. **If
-  multiple labelers are available, run an inter-labeler agreement check on a shared subset. If
-  there is only one labeler, run a re-label consistency check instead** — the same labeler
-  re-labels a shared subset after a delay, and agreement between the two passes stands in for
-  inter-labeler agreement. No computer vision at this stage.
+- **M3 — Observation schema and labeling protocol.** Split into **M3A** (observation schema +
+  tooling: record types, field-by-field schema, validator, CSV→YAML importer, synthetic
+  fixtures/tests — no real matches required to close it), **M3B** (a 3-match pilot corpus across
+  `baseline_clean`/`typical_broadcast`/`poor_video` video quality, reconciliation, and a
+  schema-revision checkpoint), and **M3C** (5 more matches to reach an 8-match pilot, plus QC —
+  **if multiple labelers are available, an inter-labeler agreement check on a shared subset; if
+  there is only one labeler, a blinded re-label consistency check instead**). Full design in
+  `docs/plans/m3-observation-plan.md`. No computer vision at this stage.
 - **M4 — Match reconstruction.** Replay each labeled match's action sequence through `model` +
   `scoring` and compare against the officially published final score. → **Gate V2.** Validates the
   state model and scorer against reality using zero simulation.
@@ -43,19 +45,20 @@ entrenched guessed priors to unlearn later.
 - **M10+ — Deferred.** Season-meta and Worlds opponent forecasting, autonomous strategy
   optimization, automatic video analysis, UI.
 
-## Observation schema sketch (M3)
+## Observation schema (M3)
 
-One record per labeled action event — labeler-friendly, coarse, no coordinates:
+The detailed schema — record types, field-by-field reference, temporal/spatial semantics,
+possession episodes, reconciliation design, parameter traceability, labeling workflow, pilot
+selection, and QC protocol — lives in `docs/plans/m3-observation-plan.md`, not here, so there is
+exactly one schema to keep in sync. Summary of the execution split:
 
-`match_id`, `program`, `event`, `date`, `video_url`, `video_timestamp`, `robot_ref`,
-`robot_size_class`, `action_type` (`acquire_pin` | `acquire_cup` | `retrieve_from_loader` |
-`traverse` | `align` | `place` | `flip_toggle` | `contest_midfield` | `recover`), `t_start`,
-`t_end`, `from_region`, `to_region`, `outcome` (`success` | `fail` | `abandoned`), `retry_of`,
-`interference` (`none` | `defensive_contact` | `congestion` | `field_element`), `notes`, `labeler`,
-`label_date`, `confidence`.
-
-Every M5 parameter maps onto exactly one `action_type` or one derived field
-(`failure/retry` ← `outcome` + `retry_of`; `defensive delay` and `congestion` ← `interference`).
+- **M3A** — observation schema + tooling: normative schema docs, `src/vexu_sim/observations/`
+  (models, validator, reconciliation, CSV→YAML importer), synthetic fixtures/tests. No real
+  matches required to close M3A.
+- **M3B** — a 3-match pilot corpus (`baseline_clean` / `typical_broadcast` / `poor_video`),
+  reconciliation run on all three, and a schema-revision checkpoint.
+- **M3C** — 5 more matches (8 total), corpus-breadth strata, and QC (single-labeler re-label or
+  multi-labeler agreement).
 
 ## Adding a new manual version
 

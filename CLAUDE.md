@@ -22,9 +22,10 @@ observation.
 - Robots are capability vectors, not CAD.
 - A VEX U architecture is a coordinated 24" + 15" robot pair.
 - No ML where deterministic or statistical methods suffice.
-- Manual review/labeling of real match video begins in M3. No computer vision or
-  automatic video processing, and no optimization or UI, until their later milestones
-  (`docs/roadmap.md`).
+- Manual video review and manual labeling begin in M3B (`docs/plans/m3-observation-plan.md`) --
+  M3A is schema and tooling only, with no real match video reviewed. No computer vision or
+  automatic video processing until its later milestone; no optimization or UI until their later
+  milestones (`docs/roadmap.md`).
 
 ## The rule-gap workflow
 
@@ -46,6 +47,7 @@ docs/design/                               principles, game model, state/scoring
 docs/decisions/                            ADRs -- on demand only, see decisions/README.md
 docs/open-questions.md                     genuinely unresolved rule ambiguities
 docs/roadmap.md                            milestone plan
+docs/plans/                                milestone planning handoffs -- m3-observation-plan.md is the current M3 baseline
 data/sources/                              WHO SAYS SO -- manual + Q&A source records
 data/rules/override/v<version>/            WHAT THE RULES SAY -- versioned, cited, base+VEX U overlay
 data/assumptions/                          WHAT WE CHOSE TO MODEL -- empty until simulation work
