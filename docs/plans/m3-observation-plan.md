@@ -1,14 +1,24 @@
 # M3 — Observation Schema and Manual Match-Labeling Protocol (Revision 2.1)
 
-> **STATUS: APPROVED PLANNING BASELINE**
-> **IMPLEMENTATION HAS NOT STARTED**
+> **STATUS: APPROVED PLANNING BASELINE -- REVISION 2.1 REMAINS THE APPROVED M3 DESIGN**
+> **M3A (SCHEMA + TOOLING) IS IMPLEMENTED. M3B (PILOT LABELING) IS NEXT. M3 OVERALL REMAINS OPEN.**
 
 This document is the definitive, approved planning baseline for M3, preserved as a project
-handoff. No `src/vexu_sim/observations/` package, no labeled matches, and no schema documents
-under `docs/design/` exist yet. Nothing in this file has been implemented. Revision 2.1 folds in
-the final approved M3A corrections directly (§B–§R below; see "Corrections applied in Revision
-2.1" immediately following) rather than leaving them as a note superseding the body text, so a
-fresh implementation session has exactly one consistent source of truth.
+handoff; it is not rewritten as implementation proceeds, so it stays a stable record of the
+design rationale and the alternatives considered. **M3A has now been implemented** against this
+baseline: `src/vexu_sim/observations/` (models, `refs.py`, `loader.py`, `reconcile.py`,
+`from_csv.py`), plus the normative schema/protocol pair
+`docs/design/07-observation-schema.md` and `docs/design/08-labeling-protocol.md`, all validated
+against a synthetic fixture only -- **zero real matches have been labeled**. For the current,
+implemented field-by-field reference, read the `docs/design/` pair, not this file; this plan
+remains the place to read *why* each design choice was made. Revision 2.1 folds in the final
+approved M3A corrections directly (§B–§R below; see "Corrections applied in Revision 2.1"
+immediately following) rather than leaving them as a note superseding the body text, so a fresh
+implementation session has exactly one consistent source of truth for the design.
+
+**Next: M3B** -- a 3-match pilot corpus (`baseline_clean`/`typical_broadcast`/`poor_video`),
+reconciliation, and the schema-revision checkpoint described in §Q. M3B has not started; no real
+match has been sourced, watched, or labeled.
 
 ---
 

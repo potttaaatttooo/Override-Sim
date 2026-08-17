@@ -29,6 +29,8 @@ from .models import (
     ACQUIRE_OBJECTS,
     ACQUIRE_SOURCES,
     ACTION_TYPES,
+    ALLIANCES,
+    AUTONOMOUS_BONUS_TO_VALUES,
     CAMERA_TYPES,
     CHANGE_TYPES,
     CONFIDENCE_LEVELS,
@@ -41,12 +43,14 @@ from .models import (
     INCIDENT_TYPES,
     INTERACTION_TYPES,
     NESTED_HALVES,
+    OBJECT_TYPES,
     OUTCOMES,
     PERIODS,
     PIN_COLORS,
     PLACE_DESCORE_OBJECTS,
     POSSESSION_AFFECTING_CHANGES,
     RESOLUTIONS,
+    SELECTION_STRATA,
     SIZE_CLASSES,
     SNAPSHOT_CONTEXTS,
     SNAPSHOT_QUALITIES,
@@ -99,28 +103,51 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _check_numeric_or_unknown(value: Any, ctx: str, field_name: str, *, allow_null: bool = False) -> None:
+def _check_numeric_or_unknown(
+    errors: list[str], value: Any, ctx: str, field_name: str, *, allow_null: bool = False
+) -> None:
     if allow_null and value is None:
         return
     if value == UNKNOWN:
         return
     if _is_number(value):
         return
-    raise ObservationValidationError(
+    errors.append(
         f"{ctx}: {field_name}={value!r} must be numeric, {UNKNOWN!r}"
         + (" or null" if allow_null else "")
     )
 
 
-def _check_bool_or_unknown(value: Any, ctx: str, field_name: str, *, allow_null: bool = False) -> None:
+def _check_bool_or_unknown(
+    errors: list[str], value: Any, ctx: str, field_name: str, *, allow_null: bool = False
+) -> None:
     if allow_null and value is None:
         return
     if value == UNKNOWN or isinstance(value, bool):
         return
-    raise ObservationValidationError(
+    errors.append(
         f"{ctx}: {field_name}={value!r} must be a bool, {UNKNOWN!r}"
         + (" or null" if allow_null else "")
     )
+
+
+def _check_nonneg_int_or_unknown(
+    errors: list[str], value: Any, ctx: str, field_name: str, *, allow_null: bool = False
+) -> None:
+    """For fields typed `int | unknown` (never a float, even an integer-valued one --
+    counts, not measurements) that must also be >= 0 (a physical count/depth)."""
+    if allow_null and value is None:
+        return
+    if value == UNKNOWN:
+        return
+    if isinstance(value, bool) or not isinstance(value, int):
+        errors.append(
+            f"{ctx}: {field_name}={value!r} must be a (non-fractional) int or {UNKNOWN!r}"
+            + (" or null" if allow_null else "")
+        )
+        return
+    if value < 0:
+        errors.append(f"{ctx}: {field_name}={value!r} must be >= 0")
 
 
 # --- match.yaml parsing --------------------------------------------------------------
@@ -460,11 +487,80 @@ def _validate_match(match: MatchObservation, errors: list[str]) -> None:
             )
         if r.size_class not in SIZE_CLASSES:
             errors.append(f"roster[{r.robot_ref!r}]: invalid size_class {r.size_class!r}")
+        if r.alliance not in ALLIANCES:
+            errors.append(f"roster[{r.robot_ref!r}]: alliance={r.alliance!r} must be one of {sorted(ALLIANCES)}")
+        if not isinstance(r.cycle_labeled, bool):
+            errors.append(f"roster[{r.robot_ref!r}]: cycle_labeled={r.cycle_labeled!r} must be a real bool")
 
     if match.video.quality not in VIDEO_QUALITIES:
         errors.append(f"match.video.quality={match.video.quality!r} invalid")
     if match.video.camera not in CAMERA_TYPES:
         errors.append(f"match.video.camera={match.video.camera!r} invalid")
+
+    offset_keys = set(match.video.period_offsets)
+    if offset_keys != set(PERIODS):
+        errors.append(
+            f"match.video.period_offsets keys must be exactly {sorted(PERIODS)}, "
+            f"got {sorted(offset_keys)}"
+        )
+    for period_name, offset in match.video.period_offsets.items():
+        if not _is_number(offset):
+            errors.append(f"match.video.period_offsets[{period_name!r}]={offset!r} must be numeric")
+
+    if not _is_number(match.video.timing_precision_s) or match.video.timing_precision_s <= 0:
+        errors.append(
+            f"match.video.timing_precision_s={match.video.timing_precision_s!r} must be a positive number"
+        )
+
+    if not isinstance(match.coverage.fully_labeled, bool):
+        errors.append(f"match.coverage.fully_labeled={match.coverage.fully_labeled!r} must be a real bool")
+    for w in match.coverage.unlabeled_windows:
+        if w.period not in PERIODS:
+            errors.append(f"match.coverage.unlabeled_windows: invalid period {w.period!r}")
+        if not _is_number(w.t_start) or not _is_number(w.t_end):
+            errors.append(
+                f"match.coverage.unlabeled_windows: t_start/t_end must be numeric "
+                f"(got t_start={w.t_start!r}, t_end={w.t_end!r})"
+            )
+        elif w.t_end <= w.t_start:
+            errors.append(
+                f"match.coverage.unlabeled_windows: t_end ({w.t_end}) must be after t_start ({w.t_start})"
+            )
+
+    if not isinstance(match.labeling.pass_id, int) or isinstance(match.labeling.pass_id, bool) or match.labeling.pass_id <= 0:
+        errors.append(f"match.labeling.pass_id={match.labeling.pass_id!r} must be a positive int")
+    if (
+        not isinstance(match.labeling.minutes_spent, int)
+        or isinstance(match.labeling.minutes_spent, bool)
+        or match.labeling.minutes_spent < 0
+    ):
+        errors.append(f"match.labeling.minutes_spent={match.labeling.minutes_spent!r} must be a nonnegative int")
+    if match.labeling.selection_stratum not in SELECTION_STRATA:
+        errors.append(
+            f"match.labeling.selection_stratum={match.labeling.selection_stratum!r} must be one of "
+            f"{sorted(SELECTION_STRATA)} (§L.1)"
+        )
+
+    res = match.official_result
+    if not isinstance(res.red_total, int) or isinstance(res.red_total, bool) or res.red_total < 0:
+        errors.append(f"match.official_result.red_total={res.red_total!r} must be a nonnegative int")
+    if not isinstance(res.blue_total, int) or isinstance(res.blue_total, bool) or res.blue_total < 0:
+        errors.append(f"match.official_result.blue_total={res.blue_total!r} must be a nonnegative int")
+    if res.autonomous_bonus_to not in AUTONOMOUS_BONUS_TO_VALUES:
+        errors.append(
+            f"match.official_result.autonomous_bonus_to={res.autonomous_bonus_to!r} must be one of "
+            f"{sorted(AUTONOMOUS_BONUS_TO_VALUES)}"
+        )
+    for side in ("red", "blue"):
+        if side in res.awp and not isinstance(res.awp[side], bool):
+            errors.append(f"match.official_result.awp[{side!r}]={res.awp[side]!r} must be a real bool")
+    violations = res.violations_autonomous
+    if violations != UNKNOWN:
+        if not isinstance(violations, list) or any(v not in ALLIANCES for v in violations):
+            errors.append(
+                f"match.official_result.violations_autonomous={violations!r} must be {UNKNOWN!r} or a "
+                f"list drawn from {sorted(ALLIANCES)}"
+            )
 
 
 def _robot_refs(match: MatchObservation) -> frozenset[str]:
@@ -496,6 +592,8 @@ def _validate_snapshots(
             errors.append(f"snapshot[{snap.snapshot_id!r}]: invalid context {snap.context!r}")
         if snap.quality not in SNAPSHOT_QUALITIES:
             errors.append(f"snapshot[{snap.snapshot_id!r}]: invalid quality {snap.quality!r}")
+        if not _is_number(snap.video_t):
+            errors.append(f"snapshot[{snap.snapshot_id!r}]: video_t={snap.video_t!r} must be numeric")
 
         missing_goals = goal_ids - snap.goals.keys()
         if missing_goals:
@@ -511,29 +609,41 @@ def _validate_snapshots(
             if goal.confidence not in CONFIDENCE_LEVELS:
                 errors.append(f"snapshot[{snap.snapshot_id!r}].goals[{gid!r}]: invalid confidence")
             for item in goal.stack:
+                item_ctx = f"snapshot[{snap.snapshot_id!r}].goals[{gid!r}]"
                 if item.object not in STACK_OBJECT_TYPES:
-                    errors.append(f"snapshot[{snap.snapshot_id!r}].goals[{gid!r}]: invalid stack object")
-                if item.object == "pin" and not item.colors:
-                    errors.append(
-                        f"snapshot[{snap.snapshot_id!r}].goals[{gid!r}]: pin stack item missing 'colors'"
-                    )
-                if item.object == "cup" and item.down_face is None:
-                    errors.append(
-                        f"snapshot[{snap.snapshot_id!r}].goals[{gid!r}]: cup stack item missing 'down_face'"
-                    )
-                if item.down_face is not None and item.down_face not in CUP_FACES:
-                    errors.append(f"snapshot[{snap.snapshot_id!r}].goals[{gid!r}]: invalid down_face")
+                    errors.append(f"{item_ctx}: invalid stack object {item.object!r}")
+                if item.object == "pin":
+                    if not item.colors:
+                        errors.append(f"{item_ctx}: pin stack item missing 'colors'")
+                    elif len(item.colors) != 2 or any(c not in PIN_COLORS for c in item.colors):
+                        errors.append(f"{item_ctx}: pin stack item colors={item.colors!r} invalid")
+                    if item.down_face is not None:
+                        errors.append(f"{item_ctx}: down_face must be absent when object == 'pin'")
+                elif item.object == "cup":
+                    if item.down_face is None:
+                        errors.append(f"{item_ctx}: cup stack item missing 'down_face'")
+                    elif item.down_face not in CUP_FACES:
+                        errors.append(f"{item_ctx}: invalid down_face {item.down_face!r}")
+                    if item.colors is not None:
+                        errors.append(f"{item_ctx}: colors must be absent when object == 'cup'")
+                else:
+                    if item.colors is not None:
+                        errors.append(f"{item_ctx}: colors must be absent unless object == 'pin'")
+                    if item.down_face is not None:
+                        errors.append(f"{item_ctx}: down_face must be absent unless object == 'cup'")
                 if item.nested_half is not None and item.nested_half not in NESTED_HALVES:
-                    errors.append(f"snapshot[{snap.snapshot_id!r}].goals[{gid!r}]: invalid nested_half")
+                    errors.append(f"{item_ctx}: invalid nested_half {item.nested_half!r}")
 
         for tid, toggle in snap.toggles.items():
             if toggle.orientation not in TOGGLE_ORIENTATIONS:
                 errors.append(f"snapshot[{snap.snapshot_id!r}].toggles[{tid!r}]: invalid orientation")
-            _check_bool_or_unknown(toggle.seated, f"snapshot.toggles[{tid!r}]", "seated")
-            _check_bool_or_unknown(toggle.contacted_by_robot, f"snapshot.toggles[{tid!r}]", "contacted_by_robot")
+            _check_bool_or_unknown(errors, toggle.seated, f"snapshot.toggles[{tid!r}]", "seated")
+            _check_bool_or_unknown(errors, toggle.contacted_by_robot, f"snapshot.toggles[{tid!r}]", "contacted_by_robot")
+            if toggle.confidence not in CONFIDENCE_LEVELS:
+                errors.append(f"snapshot[{snap.snapshot_id!r}].toggles[{tid!r}]: invalid confidence")
 
         for rref, robot in snap.robots.items():
-            _check_bool_or_unknown(robot.in_midfield, f"snapshot.robots[{rref!r}]", "in_midfield")
+            _check_bool_or_unknown(errors, robot.in_midfield, f"snapshot.robots[{rref!r}]", "in_midfield")
             if snap.context == "autonomous_end" and robot.contacting_perimeter is None:
                 errors.append(
                     f"snapshot[{snap.snapshot_id!r}].robots[{rref!r}]: contacting_perimeter is "
@@ -541,7 +651,7 @@ def _validate_snapshots(
                 )
             if robot.contacting_perimeter is not None:
                 _check_bool_or_unknown(
-                    robot.contacting_perimeter, f"snapshot.robots[{rref!r}]", "contacting_perimeter"
+                    errors, robot.contacting_perimeter, f"snapshot.robots[{rref!r}]", "contacting_perimeter"
                 )
 
 
@@ -555,6 +665,29 @@ def _actions(events: tuple) -> list[Action]:
 
 def _loader_visits(events: tuple) -> list[LoaderVisit]:
     return [e for e in events if isinstance(e, LoaderVisit)]
+
+
+# Which of the type-specific fields each `action_type` is actually allowed to set
+# (§D, common-core fields excluded). `target_goal_ref`/`stack_height_before`/
+# `stack_height_after`/`cup_down_face`/`object` are legitimately shared between
+# `place` and `descore` (or `place`/`acquire` for `object`); `method` is
+# legitimately shared between `descore` and `toggle` (different enums, checked
+# separately). Anything not listed for a given type must be absent -- enforced
+# generically below rather than as scattered ad hoc checks, so a field belonging to
+# another action_type can never silently slip through unrejected.
+_ACTION_TYPE_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
+    "acquire": frozenset({"source", "object", "object_colors", "loader_visit_id"}),
+    "place": frozenset(
+        {"target_goal_ref", "object", "stack_height_before", "stack_height_after",
+         "cup_down_face", "destabilized_stack", "video_t_release"}
+    ),
+    "descore": frozenset(
+        {"target_goal_ref", "method", "objects_removed", "stack_height_before",
+         "stack_height_after", "cup_down_face"}
+    ),
+    "toggle": frozenset({"toggle_ref", "state_before", "state_after", "seated_after", "method"}),
+}
+_ALL_ACTION_TYPE_SPECIFIC_FIELDS: frozenset[str] = frozenset().union(*_ACTION_TYPE_ALLOWED_FIELDS.values())
 
 
 def _validate_action(
@@ -579,6 +712,8 @@ def _validate_action(
         errors.append(f"{ctx}: invalid period {action.period!r}")
     if action.region not in regions:
         errors.append(f"{ctx}: region {action.region!r} not in the declared region vocabulary")
+    if not _is_number(action.video_t_start):
+        errors.append(f"{ctx}: video_t_start={action.video_t_start!r} must be numeric")
     if action.outcome not in OUTCOMES:
         errors.append(f"{ctx}: invalid outcome {action.outcome!r}")
     if action.contested not in CONTESTED_VALUES:
@@ -588,11 +723,19 @@ def _validate_action(
     if action.contested_robot_ref is not None and action.contested_robot_ref not in robot_refs:
         errors.append(f"{ctx}: contested_robot_ref {action.contested_robot_ref!r} does not resolve")
 
+    # Generic REQ-IF-in-both-directions audit: a field belonging to a different
+    # action_type must be absent, whatever the per-type checks below additionally
+    # require of the fields that DO apply.
+    allowed_fields = _ACTION_TYPE_ALLOWED_FIELDS.get(action.action_type, frozenset())
+    for field_name in _ALL_ACTION_TYPE_SPECIFIC_FIELDS - allowed_fields:
+        if getattr(action, field_name) is not None:
+            errors.append(f"{ctx}: {field_name} must be absent for action_type={action.action_type!r}")
+
     # video_t_end: numeric or "unknown", NEVER null (§E.3).
     if action.video_t_end is None:
         errors.append(f"{ctx}: video_t_end may never be null for an Action (Revision 2.1, §E.3)")
     else:
-        _check_numeric_or_unknown(action.video_t_end, ctx, "video_t_end")
+        _check_numeric_or_unknown(errors, action.video_t_end, ctx, "video_t_end")
         if _is_number(action.video_t_end) and _is_number(action.video_t_start):
             if action.video_t_end <= action.video_t_start:
                 errors.append(
@@ -629,7 +772,9 @@ def _validate_action(
     elif action.possession_id is not None:
         errors.append(f"{ctx}: possession_id must be absent for action_type={action.action_type!r}")
 
-    # --- per action_type field checks ---
+    # --- per action_type field checks (absence of fields belonging to OTHER
+    # action_types is enforced generically above; this section only checks the
+    # REQ/REQ-IF/enum rules for fields that DO apply to this action_type) ---
     if action.action_type == "acquire":
         if action.source not in ACQUIRE_SOURCES:
             errors.append(f"{ctx}: invalid source {action.source!r}")
@@ -639,9 +784,6 @@ def _validate_action(
             errors.append(
                 f"{ctx}: loader_visit_id {action.loader_visit_id!r} does not resolve to a LoaderVisit"
             )
-        for absent_field in ("target_goal_ref", "method", "toggle_ref"):
-            if getattr(action, absent_field) is not None:
-                errors.append(f"{ctx}: {absent_field} must be absent for action_type='acquire'")
 
     elif action.action_type == "place":
         if action.target_goal_ref not in goal_ids:
@@ -651,21 +793,23 @@ def _validate_action(
         if action.stack_height_before is None:
             errors.append(f"{ctx}: stack_height_before is REQ for action_type='place'")
         else:
-            _check_numeric_or_unknown(action.stack_height_before, ctx, "stack_height_before")
+            _check_nonneg_int_or_unknown(errors, action.stack_height_before, ctx, "stack_height_before")
         if action.stack_height_after is None:
             errors.append(f"{ctx}: stack_height_after is REQ for action_type='place'")
         else:
-            _check_numeric_or_unknown(action.stack_height_after, ctx, "stack_height_after")
+            _check_nonneg_int_or_unknown(errors, action.stack_height_after, ctx, "stack_height_after")
         if action.object == "cup" and action.cup_down_face is None:
             errors.append(f"{ctx}: cup_down_face is REQ-IF object == 'cup'")
         if action.object != "cup" and action.cup_down_face is not None:
             errors.append(f"{ctx}: cup_down_face must be absent when object != 'cup'")
+        elif action.cup_down_face is not None and action.cup_down_face not in CUP_FACES:
+            errors.append(f"{ctx}: invalid cup_down_face {action.cup_down_face!r}")
         if action.destabilized_stack is None:
             errors.append(f"{ctx}: destabilized_stack is REQ for action_type='place'")
         else:
-            _check_bool_or_unknown(action.destabilized_stack, ctx, "destabilized_stack")
+            _check_bool_or_unknown(errors, action.destabilized_stack, ctx, "destabilized_stack")
         if action.video_t_release is not None:
-            _check_numeric_or_unknown(action.video_t_release, ctx, "video_t_release")
+            _check_numeric_or_unknown(errors, action.video_t_release, ctx, "video_t_release")
 
     elif action.action_type == "descore":
         if action.target_goal_ref not in goal_ids:
@@ -676,35 +820,35 @@ def _validate_action(
             if action.objects_removed is None:
                 errors.append(f"{ctx}: objects_removed is REQ-IF method in {{extract, topple}}")
             else:
-                _check_numeric_or_unknown(action.objects_removed, ctx, "objects_removed")
+                _check_nonneg_int_or_unknown(errors, action.objects_removed, ctx, "objects_removed")
         elif action.objects_removed is not None:
             errors.append(f"{ctx}: objects_removed must be absent for method={action.method!r}")
         if action.stack_height_before is None:
             errors.append(f"{ctx}: stack_height_before is REQ for action_type='descore'")
         else:
-            _check_numeric_or_unknown(action.stack_height_before, ctx, "stack_height_before")
+            _check_nonneg_int_or_unknown(errors, action.stack_height_before, ctx, "stack_height_before")
         if action.stack_height_after is None:
             errors.append(f"{ctx}: stack_height_after is REQ for action_type='descore'")
         else:
-            _check_numeric_or_unknown(action.stack_height_after, ctx, "stack_height_after")
+            _check_nonneg_int_or_unknown(errors, action.stack_height_after, ctx, "stack_height_after")
         if action.method == "obscure" and action.cup_down_face is None:
             errors.append(f"{ctx}: cup_down_face is REQ-IF method == 'obscure'")
         if action.method != "obscure" and action.cup_down_face is not None:
             errors.append(f"{ctx}: cup_down_face must be absent unless method == 'obscure'")
-        if action.object is not None:
-            errors.append(f"{ctx}: object must be absent for action_type='descore'")
+        elif action.cup_down_face is not None and action.cup_down_face not in CUP_FACES:
+            errors.append(f"{ctx}: invalid cup_down_face {action.cup_down_face!r}")
 
     elif action.action_type == "toggle":
         if action.toggle_ref not in toggle_ids:
             errors.append(f"{ctx}: toggle_ref {action.toggle_ref!r} not a canonical Toggle id")
-        if action.state_before not in PIN_COLORS:
+        if action.state_before not in TOGGLE_ORIENTATIONS:
             errors.append(f"{ctx}: invalid state_before {action.state_before!r}")
-        if action.state_after not in PIN_COLORS:
+        if action.state_after not in TOGGLE_ORIENTATIONS:
             errors.append(f"{ctx}: invalid state_after {action.state_after!r}")
         if action.seated_after is None:
             errors.append(f"{ctx}: seated_after is REQ for action_type='toggle'")
         else:
-            _check_bool_or_unknown(action.seated_after, ctx, "seated_after")
+            _check_bool_or_unknown(errors, action.seated_after, ctx, "seated_after")
         if action.method not in TOGGLE_METHODS:
             errors.append(f"{ctx}: invalid method {action.method!r}")
 
@@ -767,11 +911,24 @@ def _validate_loader_visit(
         errors.append(f"{ctx}: invalid contested {lv.contested!r}")
     if lv.confidence not in CONFIDENCE_LEVELS:
         errors.append(f"{ctx}: invalid confidence {lv.confidence!r}")
-    _check_numeric_or_unknown(lv.video_t_exit, ctx, "video_t_exit", allow_null=True)
-    _check_numeric_or_unknown(lv.objects_acquired, ctx, "objects_acquired")
-    _check_numeric_or_unknown(lv.failed_grabs, ctx, "failed_grabs")
+    # video_t_enter has no "unknown" alternative in the schema (§C.12) -- unlike
+    # MidfieldOccupancy/Incident, a LoaderVisit's entry is purely positional and
+    # always readable.
+    if not _is_number(lv.video_t_enter):
+        errors.append(f"{ctx}: video_t_enter={lv.video_t_enter!r} must be numeric")
+    _check_numeric_or_unknown(errors, lv.video_t_exit, ctx, "video_t_exit", allow_null=True)
+    if _is_number(lv.video_t_enter) and _is_number(lv.video_t_exit) and lv.video_t_exit <= lv.video_t_enter:
+        errors.append(
+            f"{ctx}: video_t_exit ({lv.video_t_exit}) must be after video_t_enter ({lv.video_t_enter})"
+        )
+    _check_nonneg_int_or_unknown(errors, lv.objects_acquired, ctx, "objects_acquired")
+    _check_nonneg_int_or_unknown(errors, lv.failed_grabs, ctx, "failed_grabs")
+    if lv.objects_types is not None:
+        for obj_type in lv.objects_types:
+            if obj_type not in OBJECT_TYPES:
+                errors.append(f"{ctx}: objects_types entry {obj_type!r} must be one of {sorted(OBJECT_TYPES)}")
     if lv.video_t_first_object_available is not None:
-        _check_numeric_or_unknown(lv.video_t_first_object_available, ctx, "video_t_first_object_available")
+        _check_numeric_or_unknown(errors, lv.video_t_first_object_available, ctx, "video_t_first_object_available")
 
 
 def _validate_midfield_occupancy(mo: MidfieldOccupancy, robot_refs: frozenset[str], errors: list[str]) -> None:
@@ -782,14 +939,18 @@ def _validate_midfield_occupancy(mo: MidfieldOccupancy, robot_refs: frozenset[st
         errors.append(f"{ctx}: invalid period {mo.period!r}")
     if mo.confidence not in CONFIDENCE_LEVELS:
         errors.append(f"{ctx}: invalid confidence {mo.confidence!r}")
-    _check_numeric_or_unknown(mo.video_t_enter, ctx, "video_t_enter")
-    _check_numeric_or_unknown(mo.video_t_exit, ctx, "video_t_exit", allow_null=True)
-    _check_bool_or_unknown(mo.contested_during, ctx, "contested_during")
+    _check_numeric_or_unknown(errors, mo.video_t_enter, ctx, "video_t_enter")
+    _check_numeric_or_unknown(errors, mo.video_t_exit, ctx, "video_t_exit", allow_null=True)
+    if _is_number(mo.video_t_enter) and _is_number(mo.video_t_exit) and mo.video_t_exit <= mo.video_t_enter:
+        errors.append(
+            f"{ctx}: video_t_exit ({mo.video_t_exit}) must be after video_t_enter ({mo.video_t_enter})"
+        )
+    _check_bool_or_unknown(errors, mo.contested_during, ctx, "contested_during")
     if _is_number(mo.video_t_exit) or mo.video_t_exit == UNKNOWN:
         if mo.exit_coincident_with_contact is None:
             errors.append(f"{ctx}: exit_coincident_with_contact is REQ-IF video_t_exit is not null")
         else:
-            _check_bool_or_unknown(mo.exit_coincident_with_contact, ctx, "exit_coincident_with_contact")
+            _check_bool_or_unknown(errors, mo.exit_coincident_with_contact, ctx, "exit_coincident_with_contact")
     elif mo.exit_coincident_with_contact is not None:
         errors.append(f"{ctx}: exit_coincident_with_contact must be absent when video_t_exit is null")
 
@@ -806,11 +967,17 @@ def _validate_incident(inc: Incident, robot_refs: frozenset[str], errors: list[s
         errors.append(f"{ctx}: invalid resolution {inc.resolution!r}")
     if inc.confidence not in CONFIDENCE_LEVELS:
         errors.append(f"{ctx}: invalid confidence {inc.confidence!r}")
-    _check_numeric_or_unknown(inc.video_t_start, ctx, "video_t_start")
-    _check_numeric_or_unknown(inc.video_t_end, ctx, "video_t_end", allow_null=True)
+    _check_numeric_or_unknown(errors, inc.video_t_start, ctx, "video_t_start")
+    _check_numeric_or_unknown(errors, inc.video_t_end, ctx, "video_t_end", allow_null=True)
+    if _is_number(inc.video_t_start) and _is_number(inc.video_t_end) and inc.video_t_end <= inc.video_t_start:
+        errors.append(
+            f"{ctx}: video_t_end ({inc.video_t_end}) must be after video_t_start ({inc.video_t_start})"
+        )
 
 
-def _validate_interaction(ia: Interaction, robot_refs: frozenset[str], errors: list[str]) -> None:
+def _validate_interaction(
+    ia: Interaction, robot_refs: frozenset[str], regions: frozenset[str], errors: list[str]
+) -> None:
     ctx = f"interaction[{ia.id!r}]"
     if ia.actor_robot_ref not in robot_refs:
         errors.append(f"{ctx}: actor_robot_ref {ia.actor_robot_ref!r} does not resolve")
@@ -822,8 +989,14 @@ def _validate_interaction(ia: Interaction, robot_refs: frozenset[str], errors: l
         errors.append(f"{ctx}: invalid interaction_type {ia.interaction_type!r}")
     if ia.confidence not in CONFIDENCE_LEVELS:
         errors.append(f"{ctx}: invalid confidence {ia.confidence!r}")
-    _check_numeric_or_unknown(ia.video_t_start, ctx, "video_t_start")
-    _check_numeric_or_unknown(ia.video_t_end, ctx, "video_t_end")
+    if ia.subject_region is not None and ia.subject_region not in regions:
+        errors.append(f"{ctx}: subject_region {ia.subject_region!r} not in the declared region vocabulary")
+    _check_numeric_or_unknown(errors, ia.video_t_start, ctx, "video_t_start")
+    _check_numeric_or_unknown(errors, ia.video_t_end, ctx, "video_t_end")
+    if _is_number(ia.video_t_start) and _is_number(ia.video_t_end) and ia.video_t_end <= ia.video_t_start:
+        errors.append(
+            f"{ctx}: video_t_end ({ia.video_t_end}) must be after video_t_start ({ia.video_t_start})"
+        )
 
 
 def _validate_state_change(
@@ -837,6 +1010,8 @@ def _validate_state_change(
         errors.append(f"{ctx}: invalid change {sc.change!r}")
     if sc.confidence not in CONFIDENCE_LEVELS:
         errors.append(f"{ctx}: invalid confidence {sc.confidence!r}")
+    if not _is_number(sc.video_t):
+        errors.append(f"{ctx}: video_t={sc.video_t!r} must be numeric")
     if sc.attributed_to is not None and sc.attributed_to != UNKNOWN and sc.attributed_to not in robot_refs:
         errors.append(f"{ctx}: attributed_to {sc.attributed_to!r} does not resolve to a rostered robot")
 
@@ -850,8 +1025,8 @@ def _validate_state_change(
         if sc.stack_height_before is None or sc.stack_height_after is None:
             errors.append(f"{ctx}: stack_height_before/after are REQ-IF change is goal-affecting")
         else:
-            _check_numeric_or_unknown(sc.stack_height_before, ctx, "stack_height_before")
-            _check_numeric_or_unknown(sc.stack_height_after, ctx, "stack_height_after")
+            _check_numeric_or_unknown(errors, sc.stack_height_before, ctx, "stack_height_before")
+            _check_numeric_or_unknown(errors, sc.stack_height_after, ctx, "stack_height_after")
     else:
         for absent_field in ("target_goal_ref", "stack_height_before", "stack_height_after"):
             if getattr(sc, absent_field) is not None:
@@ -862,8 +1037,12 @@ def _validate_state_change(
             errors.append(f"{ctx}: toggle_ref {sc.toggle_ref!r} not a canonical Toggle id")
         if sc.state_after is None:
             errors.append(f"{ctx}: state_after is REQ-IF change is toggle-affecting")
+        elif sc.state_after not in TOGGLE_ORIENTATIONS:
+            errors.append(f"{ctx}: invalid state_after {sc.state_after!r}")
         if sc.seated_after is None:
             errors.append(f"{ctx}: seated_after is REQ-IF change is toggle-affecting")
+        else:
+            _check_bool_or_unknown(errors, sc.seated_after, ctx, "seated_after")
     else:
         for absent_field in ("toggle_ref", "state_after", "seated_after"):
             if getattr(sc, absent_field) is not None:
@@ -874,6 +1053,8 @@ def _validate_state_change(
             errors.append(f"{ctx}: possession_id is REQ-IF change is possession-affecting")
         if sc.object is None:
             errors.append(f"{ctx}: object is REQ-IF change is possession-affecting")
+        elif sc.object not in PLACE_DESCORE_OBJECTS:
+            errors.append(f"{ctx}: invalid object {sc.object!r}")
     else:
         if sc.possession_id is not None:
             errors.append(f"{ctx}: possession_id must be absent unless change is possession-affecting")
@@ -983,10 +1164,17 @@ def _validate_possession_episodes(
                 if not held:
                     open_id = None
             elif kind == "state_change":
-                if rec.object in held:
+                if open_id is not None and rec.possession_id == open_id and rec.object in held:
                     held.discard(rec.object)
-                if not held:
-                    open_id = None
+                    if not held:
+                        open_id = None
+                else:
+                    errors.append(
+                        f"state_change[{rec.id!r}]: possession_id {rec.possession_id!r} does not "
+                        f"match robot {robot_ref!r}'s currently open episode {open_id!r} -- a "
+                        f"possession-affecting state_change must reference the open episode, not "
+                        f"silently close a different held object"
+                    )
 
         if open_id is not None:
             warnings.append(
@@ -1139,7 +1327,7 @@ def validate_observation_set(
         elif isinstance(e, Incident):
             _validate_incident(e, robot_refs, errors)
         elif isinstance(e, Interaction):
-            _validate_interaction(e, robot_refs, errors)
+            _validate_interaction(e, robot_refs, regions, errors)
         elif isinstance(e, StateChange):
             _validate_state_change(e, robot_refs, goal_ids, toggle_ids, errors)
             if e.caused_by_action is not None and e.caused_by_action not in all_action_ids:

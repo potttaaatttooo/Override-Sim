@@ -30,6 +30,20 @@ VIDEO_QUALITIES = frozenset({"good", "usable", "poor"})
 CAMERA_TYPES = frozenset({"fixed_full_field", "broadcast_switched", "handheld", "mixed"})
 SIZE_CLASSES = frozenset({"unknown_v5rc", "vexu_24", "vexu_15"})
 
+# match.yaml metadata vocabularies (docs/plans/m3-observation-plan.md §C.1, §L.1).
+ALLIANCES = frozenset({"red", "blue"})
+AUTONOMOUS_BONUS_TO_VALUES = frozenset({"red", "blue", "tie", UNKNOWN})
+# §L.1's ten selection_stratum values (strata 1-3 are M3B; 4-10 are M3C).
+SELECTION_STRATA = frozenset(
+    {"baseline_clean", "typical_broadcast", "poor_video", "high_throughput",
+     "heavy_defense", "loader_heavy", "toggle_contested", "strong_autonomous",
+     "failure_rich", "late_season"}
+)
+# LoaderVisit.objects_types list items -- unlike most object-type fields, no
+# "unknown" here: an entry only appears in the list once the labeler is sure
+# enough of the type to log it in the first place (§C.12, OPT field).
+OBJECT_TYPES = frozenset({"pin", "cup"})
+
 SNAPSHOT_CONTEXTS = frozenset({"autonomous_end", "match_end"})
 SNAPSHOT_QUALITIES = frozenset({"good", "partial", "poor"})
 GOAL_CONFIDENCE = CONFIDENCE_LEVELS

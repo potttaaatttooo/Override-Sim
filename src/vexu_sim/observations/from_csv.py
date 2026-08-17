@@ -274,11 +274,21 @@ def import_match_from_csv(match_dir: Path, *, rule_bundle: RuleBundle) -> Loaded
     if stored_sha256 is not None:
         verify_csv_sha256(csv_path, stored_sha256)
 
-    write_events_yaml(events, events_path)
-
+    # Write safety: prepare (but do not yet write) the possibly-updated match.yaml
+    # content BEFORE writing anything at all. _stamp_source_csv_sha256 can raise
+    # (e.g. match.yaml never declared the source_csv_sha256 key in the first
+    # place) -- if it does, that must happen before events.yaml is written, so a
+    # predictable validation/stamping failure never leaves events.yaml written
+    # while match.yaml is left unstamped/inconsistent.
+    new_match_yaml_text = None
     if stored_sha256 != computed_sha256:
-        new_text = _stamp_source_csv_sha256(match_yaml_text, computed_sha256)
-        match_path.write_text(new_text, encoding="utf-8")
+        new_match_yaml_text = _stamp_source_csv_sha256(match_yaml_text, computed_sha256)
+
+    # Everything is validated and any output content is fully prepared -- only now
+    # do we touch disk.
+    write_events_yaml(events, events_path)
+    if new_match_yaml_text is not None:
+        match_path.write_text(new_match_yaml_text, encoding="utf-8")
         match = _dc_replace(match, labeling=_dc_replace(match.labeling, source_csv_sha256=computed_sha256))
 
     return LoadedMatch(match=match, snapshots=snapshots, events=events, warnings=warnings)

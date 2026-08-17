@@ -1125,3 +1125,516 @@ def test_synthetic_fixture_still_loads_cleanly_after_corrective_pass(v5rc_bundle
     loaded = load_match_observation(FIXTURE_ROOT, rule_bundle=v5rc_bundle)
     assert len(loaded.events) == 19
     assert len(loaded.warnings) == 1
+
+
+# =====================================================================================
+# Final M3A validation-hardening pass
+# =====================================================================================
+
+
+# --- 1. Closed-vocabulary / type audit: Snapshot / StackItem / ToggleSnapshot ---------
+
+
+def test_pin_colors_illegal_color_rejected(v5rc_bundle):
+    raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"])
+    raw[1]["goals"]["g_midfield"]["stack"] = [{"object": "pin", "colors": ["green", "yellow"]}]
+    match, _ = _minimal(v5rc_bundle)
+    snapshots = tuple(parse_snapshot(s) for s in raw)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("colors" in e and "invalid" in e for e in errors)
+
+
+def test_pin_colors_wrong_length_rejected(v5rc_bundle):
+    raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"])
+    raw[1]["goals"]["g_midfield"]["stack"] = [{"object": "pin", "colors": ["yellow"]}]
+    match, _ = _minimal(v5rc_bundle)
+    snapshots = tuple(parse_snapshot(s) for s in raw)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("colors" in e and "invalid" in e for e in errors)
+
+
+def test_colors_on_a_cup_rejected(v5rc_bundle):
+    raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"])
+    raw[1]["goals"]["g_midfield"]["stack"] = [
+        {"object": "cup", "down_face": "opaque", "colors": ["yellow", "yellow"]}
+    ]
+    match, _ = _minimal(v5rc_bundle)
+    snapshots = tuple(parse_snapshot(s) for s in raw)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("colors must be absent when object == 'cup'" in e for e in errors)
+
+
+def test_down_face_on_a_pin_rejected(v5rc_bundle):
+    raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"])
+    raw[1]["goals"]["g_midfield"]["stack"] = [
+        {"object": "pin", "colors": ["yellow", "yellow"], "down_face": "opaque"}
+    ]
+    match, _ = _minimal(v5rc_bundle)
+    snapshots = tuple(parse_snapshot(s) for s in raw)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("down_face must be absent when object == 'pin'" in e for e in errors)
+
+
+def test_invalid_toggle_snapshot_confidence_rejected(v5rc_bundle):
+    raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"])
+    raw[1]["toggles"]["t_red_1"]["confidence"] = "very_sure"
+    match, _ = _minimal(v5rc_bundle)
+    snapshots = tuple(parse_snapshot(s) for s in raw)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("toggles['t_red_1']" in e.replace('"', "'") and "confidence" in e for e in errors)
+
+
+def test_snapshot_video_t_nonnumeric_rejected(v5rc_bundle):
+    raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"])
+    raw[1]["video_t"] = "unknown"
+    match, _ = _minimal(v5rc_bundle)
+    snapshots = tuple(parse_snapshot(s) for s in raw)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("video_t" in e and "numeric" in e for e in errors)
+
+
+# --- 2. Action validation ---------------------------------------------------------------
+
+
+def test_action_video_t_start_nonnumeric_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (parse_event(action(video_t_start="unknown", gap_after="no_next_action")),)
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("video_t_start" in e and "numeric" in e for e in errors)
+
+
+def test_place_invalid_cup_down_face_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = action(
+        action_type="place", object="cup", target_goal_ref="g_alliance_red_1",
+        stack_height_before=0, stack_height_after=1, destabilized_stack=False,
+        cup_down_face="translucent", gap_after="no_next_action", source=None,
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("invalid cup_down_face" in e for e in errors)
+
+
+def test_descore_invalid_cup_down_face_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="action", id="a_test", action_type="descore", robot_ref="r_red_a",
+        period="driver", video_t_start=21.0, video_t_end=22.0, region="quadrant_red_1",
+        outcome="success", contested="none", retry_of=None, confidence="certain",
+        gap_after="no_next_action", method="obscure", cup_down_face="sideways",
+        target_goal_ref="g_alliance_red_1", stack_height_before=0, stack_height_after=1,
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("invalid cup_down_face" in e for e in errors)
+
+
+def test_irrelevant_field_for_action_type_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    # toggle_ref belongs only to action_type='toggle', not 'acquire'.
+    raw = action(toggle_ref="t_red_1", gap_after="no_next_action")
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("toggle_ref must be absent for action_type='acquire'" in e for e in errors)
+
+
+def test_toggle_action_with_place_field_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="action", id="a_test", action_type="toggle", robot_ref="r_red_a",
+        period="driver", video_t_start=21.0, video_t_end=22.0, region="quadrant_red_1",
+        outcome="success", contested="none", retry_of=None, confidence="certain",
+        gap_after="no_next_action", toggle_ref="t_red_1", state_before="yellow",
+        state_after="red", seated_after=True, method="stopped_contact",
+        target_goal_ref="g_alliance_red_1",  # belongs to place/descore, not toggle
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("target_goal_ref must be absent for action_type='toggle'" in e for e in errors)
+
+
+def test_place_fractional_stack_height_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = action(
+        action_type="place", object="pin", target_goal_ref="g_alliance_red_1",
+        stack_height_before=0, stack_height_after=1.5, destabilized_stack=False,
+        gap_after="no_next_action", source=None,
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("must be a (non-fractional) int" in e for e in errors)
+
+
+def test_place_negative_stack_height_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = action(
+        action_type="place", object="pin", target_goal_ref="g_alliance_red_1",
+        stack_height_before=-1, stack_height_after=0, destabilized_stack=False,
+        gap_after="no_next_action", source=None,
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("must be >= 0" in e for e in errors)
+
+
+def test_descore_negative_objects_removed_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="action", id="a_test", action_type="descore", robot_ref="r_red_a",
+        period="driver", video_t_start=21.0, video_t_end=22.0, region="quadrant_red_1",
+        outcome="success", contested="none", retry_of=None, confidence="certain",
+        gap_after="no_next_action", method="extract", objects_removed=-2,
+        target_goal_ref="g_alliance_red_1", stack_height_before=1, stack_height_after=0,
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("objects_removed" in e and "must be >= 0" in e for e in errors)
+
+
+# --- 3. Other event types ----------------------------------------------------------------
+
+
+def test_loader_visit_video_t_enter_nonnumeric_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=UNKNOWN, video_t_exit=22.0, loader_ref="loader_red_1",
+        objects_acquired=0, failed_grabs=0, departs_possession_id=None,
+        contested="none", confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("video_t_enter" in e and "numeric" in e for e in errors)
+
+
+def test_loader_visit_exit_before_enter_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=25.0, video_t_exit=20.0, loader_ref="loader_red_1",
+        objects_acquired=0, failed_grabs=0, departs_possession_id=None,
+        contested="none", confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("must be after video_t_enter" in e for e in errors)
+
+
+def test_loader_visit_fractional_objects_acquired_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=20.0, video_t_exit=22.0, loader_ref="loader_red_1",
+        objects_acquired=1.5, failed_grabs=0, departs_possession_id=None,
+        contested="none", confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("objects_acquired" in e and "must be a (non-fractional) int" in e for e in errors)
+
+
+def test_loader_visit_invalid_objects_types_entry_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=20.0, video_t_exit=22.0, loader_ref="loader_red_1",
+        objects_acquired=1, failed_grabs=0, departs_possession_id=None,
+        objects_types=["pin", "robot"], contested="none", confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("objects_types entry 'robot'" in e for e in errors)
+
+
+def test_midfield_occupancy_exit_before_enter_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="midfield_occupancy", id="m_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=30.0, video_t_exit=25.0, contested_during=False, confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("must be after video_t_enter" in e for e in errors)
+
+
+def test_incident_end_before_start_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="incident", id="i_1", robot_ref="r_red_a", period="driver",
+        video_t_start=30.0, video_t_end=25.0, incident_type="mechanism_stopped",
+        resolution="unresolved", confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("must be after video_t_start" in e for e in errors)
+
+
+def test_interaction_invalid_subject_region_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="interaction", id="ia_1", actor_robot_ref="r_blue_a",
+        subject_robot_ref="r_red_a", video_t_start=21.0, video_t_end=22.0, period="driver",
+        interaction_type="sustained_contact", confidence="certain", subject_region="off_field",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("subject_region" in e and "region vocabulary" in e for e in errors)
+
+
+def test_interaction_end_before_start_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="interaction", id="ia_1", actor_robot_ref="r_blue_a",
+        subject_robot_ref="r_red_a", video_t_start=25.0, video_t_end=20.0, period="driver",
+        interaction_type="sustained_contact", confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("must be after video_t_start" in e for e in errors)
+
+
+def test_state_change_invalid_toggle_state_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="state_change", id="sc_1", period="driver", video_t=21.0,
+        change="toggle_changed", toggle_ref="t_red_1", state_after="green",
+        seated_after=True, attributed_to=None, confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("invalid state_after 'green'" in e for e in errors)
+
+
+def test_state_change_invalid_seated_after_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="state_change", id="sc_1", period="driver", video_t=21.0,
+        change="toggle_changed", toggle_ref="t_red_1", state_after="red",
+        seated_after="mostly", attributed_to=None, confidence="certain",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("seated_after" in e for e in errors)
+
+
+def test_state_change_invalid_possession_object_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        action(id="a_1", video_t_start=21.0, video_t_end=22.0, possession_id="r_red_a#1", gap_after="no_next_action"),
+        dict(record_type="state_change", id="sc_1", period="driver", video_t=22.5,
+             change="object_dropped_in_transit", attributed_to="r_red_a", confidence="certain",
+             possession_id="r_red_a#1", object="robot_arm"),
+    )
+    events = tuple(parse_event(e) for e in events)
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("invalid object 'robot_arm'" in e for e in errors)
+
+
+def test_state_change_video_t_nonnumeric_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    raw = dict(
+        record_type="state_change", id="sc_1", period="driver", video_t="unknown",
+        change="object_dropped_in_transit", attributed_to="r_red_a", confidence="certain",
+        possession_id="r_red_a#1", object="pin",
+    )
+    errors, _ = validate_observation_set(match, snapshots, (parse_event(raw),), v5rc_bundle)
+    assert any("video_t" in e and "numeric" in e for e in errors)
+
+
+def test_possession_state_change_wrong_episode_does_not_silently_close(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        # opens r_red_a#1, holding a pin
+        action(id="a_1", video_t_start=21.0, video_t_end=22.0, possession_id="r_red_a#1", gap_after="mixed"),
+        # references a DIFFERENT (never-opened) episode id but the same object type
+        dict(record_type="state_change", id="sc_1", period="driver", video_t=22.5,
+             change="object_dropped_in_transit", attributed_to="r_red_a", confidence="certain",
+             possession_id="r_red_a#9", object="pin"),
+        # a later acquire under the ORIGINAL episode must still see it as open --
+        # a duplicate-type warning proves r_red_a#1 was never actually closed.
+        action(id="a_2", video_t_start=23.0, video_t_end=24.0, possession_id="r_red_a#1", gap_after="no_next_action"),
+    )
+    events = tuple(parse_event(e) for e in events)
+    errors, warnings = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("does not match" in e and "sc_1" in e for e in errors)
+    assert any("acquiring object type already held" in w for w in warnings)
+
+
+# --- 4. Hand-authored match metadata -----------------------------------------------------
+
+
+def test_roster_cycle_labeled_non_bool_rejected(v5rc_bundle):
+    robots = [
+        dict(robot_ref="r_red_a", alliance="red", team="0001A", size_class="unknown_v5rc",
+             visual_key="x", cycle_labeled="yes"),
+    ]
+    match, snapshots = _minimal(v5rc_bundle, robots=robots)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("cycle_labeled" in e and "real bool" in e for e in errors)
+
+
+def test_roster_invalid_alliance_rejected(v5rc_bundle):
+    robots = [
+        dict(robot_ref="r_red_a", alliance="green", team="0001A", size_class="unknown_v5rc",
+             visual_key="x", cycle_labeled=True),
+    ]
+    match, snapshots = _minimal(v5rc_bundle, robots=robots)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("alliance='green'" in e.replace('"', "'") for e in errors)
+
+
+def test_period_offsets_missing_key_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    del match_raw["video"]["period_offsets"]["driver"]
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("period_offsets keys must be exactly" in e for e in errors)
+
+
+def test_period_offsets_nonnumeric_value_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["video"]["period_offsets"]["driver"] = "later"
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("period_offsets['driver']" in e.replace('"', "'") and "numeric" in e for e in errors)
+
+
+def test_timing_precision_s_must_be_positive(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["video"]["timing_precision_s"] = 0
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("timing_precision_s" in e and "positive" in e for e in errors)
+
+
+def test_coverage_fully_labeled_non_bool_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["coverage"]["fully_labeled"] = "yes"
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("fully_labeled" in e and "real bool" in e for e in errors)
+
+
+def test_unlabeled_window_invalid_period_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["coverage"]["unlabeled_windows"] = [
+        {"period": "warmup", "t_start": 0.0, "t_end": 5.0, "reason": "camera off"}
+    ]
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("unlabeled_windows: invalid period 'warmup'" in e for e in errors)
+
+
+def test_unlabeled_window_end_before_start_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["coverage"]["unlabeled_windows"] = [
+        {"period": "driver", "t_start": 10.0, "t_end": 5.0, "reason": "camera off"}
+    ]
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("t_end (5.0) must be after t_start (10.0)" in e for e in errors)
+
+
+def test_labeling_pass_id_must_be_positive(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["labeling"]["pass_id"] = 0
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("pass_id" in e and "positive int" in e for e in errors)
+
+
+def test_labeling_minutes_spent_nonnegative(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["labeling"]["minutes_spent"] = -5
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("minutes_spent" in e and "nonnegative int" in e for e in errors)
+
+
+def test_labeling_selection_stratum_must_be_approved_vocabulary(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["labeling"]["selection_stratum"] = "made_up_stratum"
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("selection_stratum" in e for e in errors)
+
+
+def test_official_result_negative_total_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["official_result"]["red_total"] = -1
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("red_total" in e and "nonnegative int" in e for e in errors)
+
+
+def test_official_result_awp_non_bool_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["official_result"]["awp"]["red"] = "yes"
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("awp['red']" in e.replace('"', "'") and "real bool" in e for e in errors)
+
+
+def test_official_result_autonomous_bonus_to_invalid_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["official_result"]["autonomous_bonus_to"] = "purple"
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("autonomous_bonus_to" in e for e in errors)
+
+
+def test_official_result_violations_autonomous_invalid_entry_rejected(v5rc_bundle):
+    match_raw = minimal_match()
+    match_raw["official_result"]["violations_autonomous"] = ["purple"]
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert any("violations_autonomous" in e for e in errors)
+
+
+def test_valid_metadata_produces_no_metadata_errors(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    errors, _ = validate_observation_set(match, snapshots, (), v5rc_bundle)
+    assert errors == []
+
+
+# --- 5. Import write safety --------------------------------------------------------------
+
+
+def test_import_match_from_csv_missing_hash_key_writes_nothing(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    for name in ("snapshots.yaml", "events.source.csv"):
+        shutil.copy(FIXTURE_ROOT / name, match_dir / name)
+    match_text = (FIXTURE_ROOT / "match.yaml").read_text(encoding="utf-8")
+    # Remove the entire "source_csv_sha256: ..." line -- the key is not merely
+    # null, it is completely absent from the file.
+    lines = [ln for ln in match_text.splitlines(keepends=True) if "source_csv_sha256" not in ln]
+    stripped_text = "".join(lines)
+    assert "source_csv_sha256" not in stripped_text
+    (match_dir / "match.yaml").write_text(stripped_text, encoding="utf-8")
+
+    with pytest.raises(FromCsvValidationError, match="source_csv_sha256"):
+        import_match_from_csv(match_dir, rule_bundle=v5rc_bundle)
+
+    assert not (match_dir / "events.yaml").exists()
+    assert (match_dir / "match.yaml").read_text(encoding="utf-8") == stripped_text
+
+
+def test_import_match_from_csv_still_stamps_valid_null_hash(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    shutil.copy(FIXTURE_ROOT / "events.source.csv", match_dir / "events.source.csv")
+    shutil.copy(FIXTURE_ROOT / "snapshots.yaml", match_dir / "snapshots.yaml")
+    match_raw = yaml.safe_load((FIXTURE_ROOT / "match.yaml").read_text(encoding="utf-8"))
+    match_raw["labeling"]["source_csv_sha256"] = None
+    (match_dir / "match.yaml").write_text(yaml.safe_dump(match_raw, sort_keys=False), encoding="utf-8")
+
+    loaded = import_match_from_csv(match_dir, rule_bundle=v5rc_bundle)
+    assert loaded.match.labeling.source_csv_sha256 == compute_csv_sha256(match_dir / "events.source.csv")
+    assert (match_dir / "events.yaml").is_file()
+
+
+def test_import_match_from_csv_still_leaves_matching_hash_untouched(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    for name in ("match.yaml", "snapshots.yaml", "events.source.csv"):
+        shutil.copy(FIXTURE_ROOT / name, match_dir / name)
+    before = (match_dir / "match.yaml").read_bytes()
+    import_match_from_csv(match_dir, rule_bundle=v5rc_bundle)
+    assert (match_dir / "match.yaml").read_bytes() == before
