@@ -9,21 +9,28 @@ from pathlib import Path
 
 import pytest
 
+import shutil
+
+import yaml
+
 from vexu_sim.observations import refs
 from vexu_sim.observations.from_csv import (
     ObservationValidationError as FromCsvValidationError,
     compute_csv_sha256,
     import_events_csv,
+    import_match_from_csv,
     read_events_csv,
     verify_csv_sha256,
     write_events_yaml,
 )
 from vexu_sim.observations.loader import (
     ObservationValidationError,
+    canonicalize_no_next_action,
     load_match_observation,
     parse_event,
     parse_match,
     parse_snapshot,
+    validate_csv_provenance,
     validate_observation_set,
 )
 from vexu_sim.observations.models import (
@@ -546,3 +553,575 @@ def test_csv_rejects_unrecognized_column(tmp_path):
     bad_csv.write_text("record_type,id,not_a_real_column\naction,a_1,x\n", encoding="utf-8")
     with pytest.raises(FromCsvValidationError, match="unrecognized column"):
         read_events_csv(bad_csv)
+
+
+# =====================================================================================
+# M3A corrective pass (commit fef600d review)
+# =====================================================================================
+
+
+def _write_events_csv(csv_path, rows):
+    from vexu_sim.observations.from_csv import CSV_COLUMNS
+    import csv as csv_module
+
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv_module.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        for row in rows:
+            full = {c: "" for c in CSV_COLUMNS}
+            full.update(row)
+            writer.writerow(full)
+
+
+def _write_match_and_snapshots(match_dir, v5rc_bundle, *, robots=None, sha256=None):
+    match_raw = minimal_match(robots=robots)
+    match_raw["labeling"]["source_csv_sha256"] = sha256
+    robot_refs = [r["robot_ref"] for r in match_raw["roster"]]
+    snapshots_raw = minimal_snapshots(v5rc_bundle, robot_refs=robot_refs)
+    (match_dir / "match.yaml").write_text(yaml.safe_dump(match_raw, sort_keys=False), encoding="utf-8")
+    (match_dir / "snapshots.yaml").write_text(yaml.safe_dump(snapshots_raw, sort_keys=False), encoding="utf-8")
+    return match_raw
+
+
+# --- 1. no_next_action import behavior -----------------------------------------------
+
+
+def test_canonicalize_marks_terminal_action_no_next_action(v5rc_bundle):
+    match, _ = _minimal(v5rc_bundle)
+    events = (
+        parse_event(action(id="a_1", video_t_start=21.0, video_t_end=22.0,
+                            possession_id="r_red_a#1", gap_after="mixed")),
+        parse_event(action(id="a_2", video_t_start=23.0, video_t_end=24.0,
+                            possession_id="r_red_a#1", gap_after="mixed")),
+    )
+    canonical = canonicalize_no_next_action(events, match)
+    by_id = {e.id: e for e in canonical}
+    assert by_id["a_1"].gap_after == "mixed"  # non-terminal: untouched
+    assert by_id["a_2"].gap_after == "no_next_action"  # terminal: canonicalized
+
+
+def test_canonicalize_does_not_touch_non_cycle_labeled_robot(v5rc_bundle):
+    match, _ = _minimal(v5rc_bundle)
+    events = (parse_event(action(id="a_1", robot_ref="r_blue_a", gap_after=None)),)
+    canonical = canonicalize_no_next_action(events, match)
+    assert canonical[0].gap_after is None
+
+
+def test_csv_import_canonicalizes_terminal_action_without_manual_no_next_action(tmp_path, v5rc_bundle):
+    match_raw = _write_match_and_snapshots(tmp_path, v5rc_bundle)
+    match = parse_match(match_raw)
+    snapshots_raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"])
+    snapshots = tuple(parse_snapshot(s) for s in snapshots_raw)
+    csv_path = tmp_path / "events.source.csv"
+    _write_events_csv(csv_path, [
+        dict(record_type="action", id="a_1", robot_ref="r_red_a", period="driver",
+             action_type="acquire", video_t_start="21.0", video_t_end="22.0",
+             region="quadrant_red_1", outcome="success", contested="none",
+             confidence="certain", gap_after="mixed", source="floor", object="pin",
+             possession_id="r_red_a#1"),
+        # terminal Action: the labeler wrote "mixed", not knowing it would be last.
+        dict(record_type="action", id="a_2", robot_ref="r_red_a", period="driver",
+             action_type="place", video_t_start="23.0", video_t_end="24.0",
+             region="quadrant_red_1", outcome="success", contested="none",
+             confidence="certain", gap_after="mixed", object="pin",
+             target_goal_ref="g_alliance_red_1", stack_height_before="0",
+             stack_height_after="1", destabilized_stack="false",
+             possession_id="r_red_a#1"),
+    ])
+    events, warnings, _ = import_events_csv(csv_path, match=match, snapshots=snapshots, rule_bundle=v5rc_bundle)
+    by_id = {e.id: e for e in events}
+    assert by_id["a_1"].gap_after == "mixed"
+    assert by_id["a_2"].gap_after == "no_next_action"
+
+
+def test_csv_import_rejects_non_terminal_action_manually_labeled_no_next_action(tmp_path, v5rc_bundle):
+    match_raw = _write_match_and_snapshots(tmp_path, v5rc_bundle)
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"]))
+    csv_path = tmp_path / "events.source.csv"
+    _write_events_csv(csv_path, [
+        # NOT terminal (a_2 follows) but mislabeled no_next_action -- must be rejected.
+        dict(record_type="action", id="a_1", robot_ref="r_red_a", period="driver",
+             action_type="acquire", video_t_start="21.0", video_t_end="22.0",
+             region="quadrant_red_1", outcome="success", contested="none",
+             confidence="certain", gap_after="no_next_action", source="floor", object="pin",
+             possession_id="r_red_a#1"),
+        dict(record_type="action", id="a_2", robot_ref="r_red_a", period="driver",
+             action_type="place", video_t_start="23.0", video_t_end="24.0",
+             region="quadrant_red_1", outcome="success", contested="none",
+             confidence="certain", gap_after="mixed", object="pin",
+             target_goal_ref="g_alliance_red_1", stack_height_before="0",
+             stack_height_after="1", destabilized_stack="false",
+             possession_id="r_red_a#1"),
+    ])
+    with pytest.raises(FromCsvValidationError, match="no_next_action"):
+        import_events_csv(csv_path, match=match, snapshots=snapshots, rule_bundle=v5rc_bundle)
+
+
+def test_canonicalize_no_next_action_is_deterministic(v5rc_bundle):
+    match, _ = _minimal(v5rc_bundle)
+    events = (
+        parse_event(action(id="a_1", video_t_start=21.0, video_t_end=22.0,
+                            possession_id="r_red_a#1", gap_after="mixed")),
+        parse_event(action(id="a_2", video_t_start=23.0, video_t_end=24.0,
+                            possession_id="r_red_a#1", gap_after="transit")),
+    )
+    once = canonicalize_no_next_action(events, match)
+    twice = canonicalize_no_next_action(once, match)
+    assert once == twice
+
+
+def test_canonicalize_no_next_action_groups_per_robot_and_period(v5rc_bundle):
+    robots = [
+        dict(robot_ref="r_red_a", alliance="red", team="0001A", size_class="unknown_v5rc",
+             visual_key="x", cycle_labeled=True),
+        dict(robot_ref="r_red_b", alliance="red", team="0003C", size_class="unknown_v5rc",
+             visual_key="x", cycle_labeled=True),
+    ]
+    match, _ = _minimal(v5rc_bundle, robots=robots)
+    events = (
+        # r_red_a, autonomous: sole action -> terminal
+        parse_event(action(id="a_auto_a", robot_ref="r_red_a", period="autonomous",
+                            video_t_start=1.0, video_t_end=2.0, possession_id="r_red_a#1", gap_after="mixed")),
+        # r_red_a, driver: two actions -> only the second is terminal
+        parse_event(action(id="a_drv_a1", robot_ref="r_red_a", period="driver",
+                            video_t_start=21.0, video_t_end=22.0, possession_id="r_red_a#2", gap_after="mixed")),
+        parse_event(action(id="a_drv_a2", robot_ref="r_red_a", period="driver",
+                            video_t_start=23.0, video_t_end=24.0, possession_id="r_red_a#2", gap_after="mixed")),
+        # r_red_b, driver: sole action -> terminal, independent of r_red_a's grouping
+        parse_event(action(id="a_drv_b1", robot_ref="r_red_b", period="driver",
+                            video_t_start=21.5, video_t_end=22.5, possession_id="r_red_b#1", gap_after="mixed")),
+    )
+    canonical = {e.id: e for e in canonicalize_no_next_action(events, match)}
+    assert canonical["a_auto_a"].gap_after == "no_next_action"
+    assert canonical["a_drv_a1"].gap_after == "mixed"
+    assert canonical["a_drv_a2"].gap_after == "no_next_action"
+    assert canonical["a_drv_b1"].gap_after == "no_next_action"
+
+
+# --- 2. CSV provenance workflow --------------------------------------------------------
+
+
+def test_import_match_from_csv_stamps_unset_hash(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    shutil.copy(FIXTURE_ROOT / "events.source.csv", match_dir / "events.source.csv")
+    match_raw = yaml.safe_load((FIXTURE_ROOT / "match.yaml").read_text(encoding="utf-8"))
+    match_raw["labeling"]["source_csv_sha256"] = None
+    (match_dir / "match.yaml").write_text(yaml.safe_dump(match_raw, sort_keys=False), encoding="utf-8")
+    shutil.copy(FIXTURE_ROOT / "snapshots.yaml", match_dir / "snapshots.yaml")
+
+    loaded = import_match_from_csv(match_dir, rule_bundle=v5rc_bundle)
+    expected_sha = compute_csv_sha256(match_dir / "events.source.csv")
+    assert loaded.match.labeling.source_csv_sha256 == expected_sha
+    assert (match_dir / "events.yaml").is_file()
+
+    # the hash actually landed on disk, and a normal load now succeeds cleanly.
+    on_disk = yaml.safe_load((match_dir / "match.yaml").read_text(encoding="utf-8"))
+    assert on_disk["labeling"]["source_csv_sha256"] == expected_sha
+    reloaded = load_match_observation(match_dir, rule_bundle=v5rc_bundle)
+    assert len(reloaded.events) == len(loaded.events)
+
+
+def test_import_match_from_csv_leaves_matching_hash_untouched(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    for name in ("match.yaml", "snapshots.yaml", "events.source.csv"):
+        shutil.copy(FIXTURE_ROOT / name, match_dir / name)
+    before = (match_dir / "match.yaml").read_bytes()
+    import_match_from_csv(match_dir, rule_bundle=v5rc_bundle)
+    after = (match_dir / "match.yaml").read_bytes()
+    assert before == after
+
+
+def test_import_match_from_csv_rejects_mismatched_hash(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    for name in ("match.yaml", "snapshots.yaml", "events.source.csv"):
+        shutil.copy(FIXTURE_ROOT / name, match_dir / name)
+    match_raw = yaml.safe_load((match_dir / "match.yaml").read_text(encoding="utf-8"))
+    match_raw["labeling"]["source_csv_sha256"] = "0" * 64
+    (match_dir / "match.yaml").write_text(yaml.safe_dump(match_raw, sort_keys=False), encoding="utf-8")
+    with pytest.raises(FromCsvValidationError, match="mismatch"):
+        import_match_from_csv(match_dir, rule_bundle=v5rc_bundle)
+    assert not (match_dir / "events.yaml").exists()
+
+
+def test_load_detects_committed_csv_no_longer_matching_stamped_hash(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    for name in ("match.yaml", "snapshots.yaml", "events.yaml", "events.source.csv"):
+        shutil.copy(FIXTURE_ROOT / name, match_dir / name)
+    # mutate the committed CSV after the hash was stamped.
+    with (match_dir / "events.source.csv").open("a", encoding="utf-8") as f:
+        f.write("\n")
+    errors = []
+    match = parse_match(yaml.safe_load((match_dir / "match.yaml").read_text(encoding="utf-8")))
+    validate_csv_provenance(match_dir, match, errors)
+    assert any("mismatch" in e for e in errors)
+
+
+def test_load_detects_missing_hash_when_csv_present(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    for name in ("match.yaml", "snapshots.yaml", "events.yaml", "events.source.csv"):
+        shutil.copy(FIXTURE_ROOT / name, match_dir / name)
+    match_raw = yaml.safe_load((match_dir / "match.yaml").read_text(encoding="utf-8"))
+    match_raw["labeling"]["source_csv_sha256"] = None
+    (match_dir / "match.yaml").write_text(yaml.safe_dump(match_raw, sort_keys=False), encoding="utf-8")
+    with pytest.raises(ObservationValidationError, match="missing but events.source.csv is present"):
+        load_match_observation(match_dir, rule_bundle=v5rc_bundle)
+
+
+def test_load_detects_stored_hash_with_no_source_csv(tmp_path, v5rc_bundle):
+    match_dir = tmp_path / "synth"
+    match_dir.mkdir()
+    for name in ("match.yaml", "snapshots.yaml", "events.yaml"):
+        shutil.copy(FIXTURE_ROOT / name, match_dir / name)
+    # events.source.csv deliberately NOT copied.
+    with pytest.raises(ObservationValidationError, match="no events.source.csv is present"):
+        load_match_observation(match_dir, rule_bundle=v5rc_bundle)
+
+
+# --- 3. Midfield reconciliation across periods -----------------------------------------
+
+
+def test_midfield_reconciliation_autonomous_null_exit_does_not_leak_into_match_end(v5rc_bundle):
+    robots = [
+        dict(robot_ref="r_red_a", alliance="red", team="0001A", size_class="unknown_v5rc",
+             visual_key="x", cycle_labeled=True),
+    ]
+    match_raw = minimal_match(robots=robots)
+    snapshots_raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a"])
+    # autonomous_end: robot IS in midfield (occupancy open, null exit).
+    snapshots_raw[0]["robots"]["r_red_a"]["in_midfield"] = True
+    # match_end: robot is NOT in midfield -- no driver-period occupancy exists.
+    snapshots_raw[1]["robots"]["r_red_a"]["in_midfield"] = False
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in snapshots_raw)
+    events = (
+        parse_event(dict(
+            record_type="midfield_occupancy", id="m_1", robot_ref="r_red_a", period="autonomous",
+            video_t_enter=2.0, video_t_exit=None, contested_during=False, confidence="certain",
+        )),
+    )
+    report = reconcile(match, snapshots, events, v5rc_bundle)
+    assert report.midfield_occupancy["r_red_a@autonomous_end"].status == "match"
+    assert report.midfield_occupancy["r_red_a@match_end"].status == "match"
+
+
+def test_midfield_reconciliation_driver_null_exit_covers_match_end_only(v5rc_bundle):
+    robots = [
+        dict(robot_ref="r_red_a", alliance="red", team="0001A", size_class="unknown_v5rc",
+             visual_key="x", cycle_labeled=True),
+    ]
+    match_raw = minimal_match(robots=robots)
+    snapshots_raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a"])
+    snapshots_raw[0]["robots"]["r_red_a"]["in_midfield"] = False  # autonomous: not yet entered
+    snapshots_raw[1]["robots"]["r_red_a"]["in_midfield"] = True  # match_end: still inside
+    match = parse_match(match_raw)
+    snapshots = tuple(parse_snapshot(s) for s in snapshots_raw)
+    events = (
+        parse_event(dict(
+            record_type="midfield_occupancy", id="m_1", robot_ref="r_red_a", period="driver",
+            video_t_enter=35.0, video_t_exit=None, contested_during=False, confidence="certain",
+        )),
+    )
+    report = reconcile(match, snapshots, events, v5rc_bundle)
+    assert report.midfield_occupancy["r_red_a@autonomous_end"].status == "match"
+    assert report.midfield_occupancy["r_red_a@match_end"].status == "match"
+
+
+# --- 4. Required-key presence (missing vs explicit null) ------------------------------
+
+
+def test_loader_visit_video_t_exit_missing_key_is_rejected():
+    raw = dict(
+        record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=21.0, loader_ref="loader_red_1",
+        objects_acquired=0, failed_grabs=0, departs_possession_id=None,
+        contested="none", confidence="certain",
+    )
+    with pytest.raises(ObservationValidationError, match="missing required key 'video_t_exit'"):
+        parse_event(raw)
+
+
+def test_loader_visit_departs_possession_id_missing_key_is_rejected():
+    raw = dict(
+        record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=21.0, video_t_exit=22.0, loader_ref="loader_red_1",
+        objects_acquired=0, failed_grabs=0,
+        contested="none", confidence="certain",
+    )
+    with pytest.raises(ObservationValidationError, match="missing required key 'departs_possession_id'"):
+        parse_event(raw)
+
+
+def test_midfield_occupancy_video_t_exit_missing_key_is_rejected():
+    raw = dict(
+        record_type="midfield_occupancy", id="m_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=21.0, contested_during=False, confidence="certain",
+    )
+    with pytest.raises(ObservationValidationError, match="missing required key 'video_t_exit'"):
+        parse_event(raw)
+
+
+def test_incident_video_t_end_missing_key_is_rejected():
+    raw = dict(
+        record_type="incident", id="i_1", robot_ref="r_red_a", period="driver",
+        video_t_start=21.0, incident_type="mechanism_stopped", resolution="unresolved",
+        confidence="certain",
+    )
+    with pytest.raises(ObservationValidationError, match="missing required key 'video_t_end'"):
+        parse_event(raw)
+
+
+def test_action_retry_of_missing_key_is_rejected():
+    raw = action()
+    del raw["retry_of"]
+    with pytest.raises(ObservationValidationError, match="missing required key 'retry_of'"):
+        parse_event(raw)
+
+
+def test_state_change_attributed_to_missing_key_is_rejected():
+    raw = dict(
+        record_type="state_change", id="sc_1", period="driver", video_t=21.0,
+        change="stack_toppled", target_goal_ref="g_alliance_red_1",
+        stack_height_before=1, stack_height_after=0, confidence="certain",
+    )
+    with pytest.raises(ObservationValidationError, match="missing required key 'attributed_to'"):
+        parse_event(raw)
+
+
+def test_coverage_unlabeled_windows_missing_key_is_rejected():
+    raw = minimal_match()
+    del raw["coverage"]["unlabeled_windows"]
+    with pytest.raises(ObservationValidationError, match="missing required key 'unlabeled_windows'"):
+        parse_match(raw)
+
+
+def test_goal_snapshot_stack_missing_key_is_rejected(v5rc_bundle):
+    raw = minimal_snapshots(v5rc_bundle, robot_refs=["r_red_a", "r_blue_a"])
+    del raw[0]["goals"]["g_midfield"]["stack"]
+    with pytest.raises(ObservationValidationError, match="missing required key 'stack'"):
+        parse_snapshot(raw[0])
+
+
+def test_explicit_null_still_accepted_for_these_fields(v5rc_bundle):
+    # Every field above must still accept an EXPLICIT null -- only an absent key is
+    # newly rejected; the unknown-vs-null convention itself is unchanged.
+    match, snapshots = _minimal(v5rc_bundle)
+    lv = dict(
+        record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=21.0, video_t_exit=None, loader_ref="loader_red_1",
+        objects_acquired=0, failed_grabs=0, departs_possession_id=None,
+        contested="none", confidence="certain",
+    )
+    mo = dict(
+        record_type="midfield_occupancy", id="m_1", robot_ref="r_red_a", period="driver",
+        video_t_enter=21.0, video_t_exit=None, contested_during=False, confidence="certain",
+    )
+    inc = dict(
+        record_type="incident", id="i_1", robot_ref="r_red_a", period="driver",
+        video_t_start=21.0, video_t_end=None, incident_type="mechanism_stopped",
+        resolution="unresolved", confidence="certain",
+    )
+    sc = dict(
+        record_type="state_change", id="sc_1", period="driver", video_t=21.0,
+        change="stack_toppled", target_goal_ref="g_alliance_red_1",
+        stack_height_before=1, stack_height_after=0, attributed_to=None, confidence="certain",
+    )
+    events = tuple(parse_event(e) for e in (lv, mo, inc, sc))
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert errors == []
+
+
+# --- 5. Possession episode id integrity ------------------------------------------------
+
+
+def test_possession_id_malformed_is_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (parse_event(action(id="a_1", possession_id="not-a-valid-id", gap_after="no_next_action")),)
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("not of the form" in e for e in errors)
+
+
+def test_possession_id_wrong_robot_is_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (parse_event(action(id="a_1", robot_ref="r_red_a", possession_id="r_blue_a#1",
+                                  gap_after="no_next_action")),)
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("belongs to" in e and "not the acting robot" in e for e in errors)
+
+
+def test_possession_id_closed_episode_cannot_be_reused(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        # opens and closes r_red_a#1
+        action(id="a_1", video_t_start=21.0, video_t_end=22.0, possession_id="r_red_a#1", gap_after="mixed"),
+        dict(record_type="state_change", id="sc_1", period="driver", video_t=22.5,
+             change="object_dropped_in_transit", attributed_to="r_red_a", confidence="certain",
+             possession_id="r_red_a#1", object="pin"),
+        # tries to reopen the SAME id after it closed.
+        action(id="a_2", video_t_start=23.0, video_t_end=24.0, possession_id="r_red_a#1", gap_after="no_next_action"),
+    )
+    events = tuple(parse_event(e) for e in events)
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("reuses or is not greater than" in e for e in errors)
+
+
+def test_possession_id_must_move_monotonically_forward(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        action(id="a_1", video_t_start=21.0, video_t_end=22.0, possession_id="r_red_a#5", gap_after="mixed"),
+        dict(record_type="state_change", id="sc_1", period="driver", video_t=22.5,
+             change="object_dropped_in_transit", attributed_to="r_red_a", confidence="certain",
+             possession_id="r_red_a#5", object="pin"),
+        # #3 < #5 -- not monotonically forward.
+        action(id="a_2", video_t_start=23.0, video_t_end=24.0, possession_id="r_red_a#3", gap_after="no_next_action"),
+    )
+    events = tuple(parse_event(e) for e in events)
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("reuses or is not greater than" in e for e in errors)
+
+
+def test_possession_id_suffix_must_be_positive(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (parse_event(action(id="a_1", possession_id="r_red_a#0", gap_after="no_next_action")),)
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("positive integer" in e for e in errors)
+
+
+def test_extending_open_episode_keeps_same_id_no_error(v5rc_bundle):
+    loaded = load_match_observation(FIXTURE_ROOT, rule_bundle=v5rc_bundle)
+    # a_003 opens r_red_a#2, a_004 extends it -- already exercised end-to-end by the
+    # fixture; re-assert here that no possession-id-integrity error was raised.
+    assert loaded is not None
+
+
+# --- 6. Unique record ids + reference integrity ----------------------------------------
+
+
+def test_duplicate_action_ids_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        action(id="a_1", video_t_start=21.0, video_t_end=22.0, possession_id="r_red_a#1", gap_after="mixed"),
+        action(id="a_1", video_t_start=23.0, video_t_end=24.0, possession_id="r_red_a#1", gap_after="no_next_action"),
+    )
+    events = tuple(parse_event(e) for e in events)
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("duplicate event record id 'a_1'" in e for e in errors)
+
+
+def test_duplicate_ids_across_record_types_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(action(id="dup_1", gap_after="no_next_action")),
+        parse_event(dict(
+            record_type="loader_visit", id="dup_1", robot_ref="r_red_a", period="driver",
+            video_t_enter=21.0, video_t_exit=22.0, loader_ref="loader_red_1",
+            objects_acquired=0, failed_grabs=0, departs_possession_id=None,
+            contested="none", confidence="certain",
+        )),
+    )
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("duplicate event record id 'dup_1'" in e for e in errors)
+
+
+def test_departs_possession_id_must_belong_to_referenced_robot(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(dict(
+            record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+            video_t_enter=21.0, video_t_exit=22.0, loader_ref="loader_red_1",
+            objects_acquired=1, failed_grabs=0, departs_possession_id="r_blue_a#1",
+            contested="none", confidence="certain",
+        )),
+    )
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("belongs to" in e for e in errors)
+
+
+def test_departs_possession_id_must_name_a_real_episode(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(dict(
+            record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+            video_t_enter=21.0, video_t_exit=22.0, loader_ref="loader_red_1",
+            objects_acquired=1, failed_grabs=0, departs_possession_id="r_red_a#9",
+            contested="none", confidence="certain",
+        )),
+    )
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("does not name a possession episode ever opened" in e for e in errors)
+
+
+def test_departs_possession_id_unknown_is_allowed(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(dict(
+            record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+            video_t_enter=21.0, video_t_exit=22.0, loader_ref="loader_red_1",
+            objects_acquired=1, failed_grabs=0, departs_possession_id=UNKNOWN,
+            contested="none", confidence="certain",
+        )),
+    )
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert errors == []
+
+
+def test_loader_linked_acquire_robot_mismatch_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(dict(
+            record_type="loader_visit", id="lv_1", robot_ref="r_blue_a", period="driver",
+            video_t_enter=21.0, video_t_exit=22.0, loader_ref="loader_blue_1",
+            objects_acquired=1, failed_grabs=0, departs_possession_id=None,
+            contested="none", confidence="certain",
+        )),
+        parse_event(action(id="a_1", robot_ref="r_red_a", source="loader", loader_visit_id="lv_1",
+                            gap_after="no_next_action")),
+    )
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("does not match loader_visit" in e and "robot_ref" in e for e in errors)
+
+
+def test_loader_linked_acquire_period_mismatch_rejected(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(dict(
+            record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="autonomous",
+            video_t_enter=1.0, video_t_exit=2.0, loader_ref="loader_red_1",
+            objects_acquired=1, failed_grabs=0, departs_possession_id=None,
+            contested="none", confidence="certain",
+        )),
+        parse_event(action(id="a_1", robot_ref="r_red_a", period="driver", source="loader",
+                            loader_visit_id="lv_1", gap_after="no_next_action")),
+    )
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert any("does not match loader_visit" in e and "period" in e for e in errors)
+
+
+def test_loader_linked_acquire_matching_robot_and_period_is_clean(v5rc_bundle):
+    match, snapshots = _minimal(v5rc_bundle)
+    events = (
+        parse_event(dict(
+            record_type="loader_visit", id="lv_1", robot_ref="r_red_a", period="driver",
+            video_t_enter=20.0, video_t_exit=20.5, loader_ref="loader_red_1",
+            objects_acquired=1, failed_grabs=0, departs_possession_id="r_red_a#1",
+            contested="none", confidence="certain",
+        )),
+        parse_event(action(id="a_1", robot_ref="r_red_a", period="driver", source="loader",
+                            loader_visit_id="lv_1", possession_id="r_red_a#1", gap_after="no_next_action")),
+    )
+    errors, _ = validate_observation_set(match, snapshots, events, v5rc_bundle)
+    assert errors == []
+
+
+# --- 7. Validation audit spot-checks ----------------------------------------------------
+
+
+def test_synthetic_fixture_still_loads_cleanly_after_corrective_pass(v5rc_bundle):
+    loaded = load_match_observation(FIXTURE_ROOT, rule_bundle=v5rc_bundle)
+    assert len(loaded.events) == 19
+    assert len(loaded.warnings) == 1

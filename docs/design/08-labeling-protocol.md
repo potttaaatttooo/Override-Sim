@@ -83,6 +83,21 @@ computed hash and must be re-verifiable by re-hashing the committed file (a
 mismatch is a validation error, not a warning). `events.yaml` remains canonical for
 every downstream reader -- no loader in this package ever reads the CSV directly.
 
+**One function does the whole workflow:** `vexu_sim.observations.from_csv.
+import_match_from_csv(match_dir, rule_bundle=...)` reads `match.yaml` +
+`snapshots.yaml` + `events.source.csv` from a match directory, canonicalizes and
+fully validates the observation set, and -- only once everything is known good --
+writes `events.yaml` and stamps `source_csv_sha256` into `match.yaml` (a targeted
+rewrite of just that one value; every other byte of the hand-authored file is left
+untouched). If `source_csv_sha256` is already stamped and still matches the
+committed CSV, `match.yaml` is left completely untouched. If it is stamped and does
+NOT match (the CSV changed after stamping), the function raises and writes nothing
+at all. Every subsequent `load_match_observation` call on that directory
+cross-checks the same three things: the committed CSV's bytes still match the
+stamped hash, a committed CSV always has a stamped hash, and a stamped hash always
+has a committed CSV to verify against -- any of the three being false is a
+validation error.
+
 **One CSV, one `record_type` column** -- not one sheet per record type. The
 labeler works a single chronological timeline; switching sheets mid-match invites
 mis-ordering. Unused columns for a given row's `record_type` are just empty cells.
@@ -120,7 +135,17 @@ one contiguous band of columns. Freeze the header row and the `record_type`/`id`
 
 ### Cell conventions the importer enforces
 
-- Empty cell = absent (not applicable to this `record_type`/condition).
+- Empty cell = absent (not applicable to this `record_type`/condition) for most
+  fields. **Exception:** a handful of fields are REQUIRED for their `record_type`
+  but legally `null` (`LoaderVisit.video_t_exit`/`departs_possession_id`,
+  `MidfieldOccupancy.video_t_exit`, `Incident.video_t_end`, `Action.retry_of`,
+  `StateChange.attributed_to`) -- a CSV cell cannot spell "explicit null"
+  differently from "blank," so for exactly these (`record_type`, column) pairs a
+  blank cell is imported as the legal `null` value rather than dropped. This
+  matters because the same column name is sometimes shared across record types with
+  different rules -- e.g. a blank `video_t_end` on an `action` row is a missing
+  required field (Actions may never have a null end), while a blank `video_t_end`
+  on an `incident` row is the legal "unresolved at match end" value.
 - The literal text `unknown` (case-insensitive) = the `unknown` sentinel, for any
   field where it is legal -- kept distinct from an empty cell.
 - Numeric columns accept a plain number or `unknown`; anything else is a hard

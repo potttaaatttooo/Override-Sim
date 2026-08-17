@@ -13,6 +13,8 @@ canonical Goal/Toggle/Quadrant ids via `refs.py` (which itself reads `field_setu
 
 from __future__ import annotations
 
+import re
+from dataclasses import replace as _dc_replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -22,6 +24,7 @@ from vexu_sim.rules import RuleBundle
 from vexu_sim.sources import SourceValidationError, validate_empirical_program
 
 from . import refs
+from .hashing import HashMismatchError, verify_csv_sha256
 from .models import (
     ACQUIRE_OBJECTS,
     ACQUIRE_SOURCES,
@@ -163,11 +166,14 @@ def _parse_official_result(raw: dict) -> OfficialResult:
 
 def _parse_coverage(raw: dict) -> Coverage:
     ctx = "match.coverage"
+    # REQ: the key itself must be present (an empty list is a real, meaningful
+    # value -- "no coverage gaps" -- not the same fact as "the author forgot the
+    # key"), so use _req rather than a get(..., []) default.
     windows = tuple(
         UnlabeledWindow(
             period=w["period"], t_start=w["t_start"], t_end=w["t_end"], reason=w["reason"]
         )
-        for w in raw.get("unlabeled_windows", [])
+        for w in _req(raw, "unlabeled_windows", ctx)
     )
     return Coverage(
         cycle_labeled_alliance=_req(raw, "cycle_labeled_alliance", ctx),
@@ -221,7 +227,9 @@ def _parse_stack_item(raw: dict, ctx: str) -> StackItem:
 
 
 def _parse_goal_snapshot(raw: dict, ctx: str) -> GoalSnapshot:
-    stack = tuple(_parse_stack_item(item, f"{ctx}.stack") for item in raw.get("stack", []))
+    # REQ: an empty stack ("this Goal is empty") is a real observed fact, distinct
+    # from the key being omitted entirely -- use _req, not a get(..., []) default.
+    stack = tuple(_parse_stack_item(item, f"{ctx}.stack") for item in _req(raw, "stack", ctx))
     return GoalSnapshot(stack=stack, confidence=_req(raw, "confidence", ctx))
 
 
@@ -278,7 +286,10 @@ def _parse_action(raw: dict) -> Action:
         region=_req(raw, "region", ctx),
         outcome=_req(raw, "outcome", ctx),
         contested=_req(raw, "contested", ctx),
-        retry_of=raw.get("retry_of"),
+        # REQ: retry_of is always present (an action id, or explicit null -- "not a
+        # retry"), so a missing key is a distinct authoring error from a labeled
+        # non-retry.
+        retry_of=_req(raw, "retry_of", ctx),
         confidence=_req(raw, "confidence", ctx),
         gap_after=raw.get("gap_after"),
         failure_mode=raw.get("failure_mode"),
@@ -312,11 +323,15 @@ def _parse_loader_visit(raw: dict) -> LoaderVisit:
         robot_ref=_req(raw, "robot_ref", ctx),
         period=_req(raw, "period", ctx),
         video_t_enter=_req(raw, "video_t_enter", ctx),
-        video_t_exit=raw.get("video_t_exit"),
+        # REQ: video_t_exit is always present -- null is the legal "still inside at
+        # period end" value, distinct from an omitted key.
+        video_t_exit=_req(raw, "video_t_exit", ctx),
         loader_ref=_req(raw, "loader_ref", ctx),
         objects_acquired=_req(raw, "objects_acquired", ctx),
         failed_grabs=_req(raw, "failed_grabs", ctx),
-        departs_possession_id=raw.get("departs_possession_id"),
+        # REQ: departs_possession_id is always present -- null is the legal
+        # "left empty-handed" value, distinct from an omitted key.
+        departs_possession_id=_req(raw, "departs_possession_id", ctx),
         contested=_req(raw, "contested", ctx),
         confidence=_req(raw, "confidence", ctx),
         objects_types=raw.get("objects_types"),
@@ -333,7 +348,8 @@ def _parse_midfield_occupancy(raw: dict) -> MidfieldOccupancy:
         robot_ref=_req(raw, "robot_ref", ctx),
         period=_req(raw, "period", ctx),
         video_t_enter=_req(raw, "video_t_enter", ctx),
-        video_t_exit=raw.get("video_t_exit"),
+        # REQ: null is the legal "still inside at period end" value.
+        video_t_exit=_req(raw, "video_t_exit", ctx),
         contested_during=_req(raw, "contested_during", ctx),
         confidence=_req(raw, "confidence", ctx),
         exit_coincident_with_contact=raw.get("exit_coincident_with_contact"),
@@ -349,7 +365,8 @@ def _parse_incident(raw: dict) -> Incident:
         robot_ref=_req(raw, "robot_ref", ctx),
         period=_req(raw, "period", ctx),
         video_t_start=_req(raw, "video_t_start", ctx),
-        video_t_end=raw.get("video_t_end"),
+        # REQ: null is the legal "unresolved at match end" value.
+        video_t_end=_req(raw, "video_t_end", ctx),
         incident_type=_req(raw, "incident_type", ctx),
         resolution=_req(raw, "resolution", ctx),
         confidence=_req(raw, "confidence", ctx),
@@ -382,7 +399,9 @@ def _parse_state_change(raw: dict) -> StateChange:
         period=_req(raw, "period", ctx),
         video_t=_req(raw, "video_t", ctx),
         change=_req(raw, "change", ctx),
-        attributed_to=raw.get("attributed_to"),
+        # REQ: null is the legal "no robot involved" value, distinct from an
+        # omitted key.
+        attributed_to=_req(raw, "attributed_to", ctx),
         confidence=_req(raw, "confidence", ctx),
         target_goal_ref=raw.get("target_goal_ref"),
         stack_height_before=raw.get("stack_height_before"),
@@ -865,14 +884,27 @@ def _validate_state_change(
         pass  # resolved centrally against the full action id set
 
 
+_POSSESSION_ID_RE = re.compile(r"^(?P<robot>.+)#(?P<n>\d+)$")
+
+
 def _validate_possession_episodes(
     events: tuple, match: MatchObservation, errors: list[str], warnings: list[str]
-) -> None:
+) -> dict[str, frozenset[str]]:
     """Per-robot possession-episode tracking (§C.7). Not interleaved: at most one
     open episode per robot at a time. Warnings (not errors) for the two cases the
     plan explicitly calls out as warnings; anything else that breaks the invariant
     (referencing a possession_id that is neither the currently open one nor a fresh
-    one when opening) is an error."""
+    one when opening) is an error.
+
+    Also enforces `possession_id` id integrity: an id opened for robot X must be of
+    the form `<X>#<positive integer>`, and a robot's episode numbers must move
+    strictly forward -- an id, once used (open or closed), can never be reused for a
+    *different* episode (§C.7's monotonically-increasing-per-robot convention).
+
+    Returns {robot_ref: frozenset(every possession_id ever opened for that robot)},
+    so callers (e.g. LoaderVisit.departs_possession_id validation) can check a
+    referenced id actually names a real episode for the right robot.
+    """
     by_robot: dict[str, list] = {}
     for e in events:
         if isinstance(e, Action) and e.action_type in ("acquire", "place"):
@@ -882,21 +914,50 @@ def _validate_possession_episodes(
             if robot and robot != UNKNOWN:
                 by_robot.setdefault(robot, []).append(("state_change", e.video_t, e))
 
+    seen_ids_by_robot: dict[str, frozenset[str]] = {}
+
     for robot_ref, items in by_robot.items():
         items.sort(key=lambda t: t[1])
         open_id: Optional[str] = None
         held: set[str] = set()
-        used_ids: set[str] = set()
+        seen_ids: set[str] = set()
+        max_suffix = 0
         for kind, _t, rec in items:
             if kind == "action" and rec.action_type == "acquire":
                 types = {"pin", "cup"} if rec.object == "pin_and_cup" else (
                     {rec.object} if rec.object in ("pin", "cup") else set()
                 )
                 if open_id is None:
-                    open_id = rec.possession_id
+                    candidate = rec.possession_id
+                    match_id = _POSSESSION_ID_RE.match(candidate) if candidate else None
+                    if match_id is None:
+                        errors.append(
+                            f"action[{rec.id!r}]: possession_id {candidate!r} is not of the form "
+                            f"'<robot_ref>#<n>'"
+                        )
+                    else:
+                        id_robot, n = match_id.group("robot"), int(match_id.group("n"))
+                        if id_robot != robot_ref:
+                            errors.append(
+                                f"action[{rec.id!r}]: possession_id {candidate!r} belongs to "
+                                f"{id_robot!r}, not the acting robot {robot_ref!r}"
+                            )
+                        elif n <= 0:
+                            errors.append(
+                                f"action[{rec.id!r}]: possession_id {candidate!r} suffix must be a "
+                                f"positive integer, got {n}"
+                            )
+                        elif candidate in seen_ids or n <= max_suffix:
+                            errors.append(
+                                f"action[{rec.id!r}]: possession_id {candidate!r} reuses or is not "
+                                f"greater than an episode id already used by robot {robot_ref!r} "
+                                f"(episode numbers must move strictly forward and never be reused)"
+                            )
+                        else:
+                            max_suffix = n
+                            seen_ids.add(candidate)
+                    open_id = candidate
                     held = set(types)
-                    if open_id:
-                        used_ids.add(open_id)
                 else:
                     if rec.possession_id != open_id:
                         errors.append(
@@ -932,6 +993,36 @@ def _validate_possession_episodes(
                 f"robot {robot_ref!r}: possession episode {open_id!r} is still open at the end of "
                 f"the labeled record stream (legal -- the robot ended holding something)"
             )
+        seen_ids_by_robot[robot_ref] = frozenset(seen_ids)
+
+    return seen_ids_by_robot
+
+
+def _validate_loader_visit_possession_refs(
+    loader_visits: list[LoaderVisit], seen_ids_by_robot: dict[str, frozenset[str]], errors: list[str]
+) -> None:
+    """`LoaderVisit.departs_possession_id`, when a concrete id (not `null`/
+    `"unknown"`), must name a real possession episode belonging to the same robot."""
+    for lv in loader_visits:
+        did = lv.departs_possession_id
+        if did is None or did == UNKNOWN:
+            continue
+        match_id = _POSSESSION_ID_RE.match(did)
+        ctx = f"loader_visit[{lv.id!r}]"
+        if match_id is None:
+            errors.append(f"{ctx}: departs_possession_id {did!r} is not of the form '<robot_ref>#<n>'")
+            continue
+        if match_id.group("robot") != lv.robot_ref:
+            errors.append(
+                f"{ctx}: departs_possession_id {did!r} belongs to {match_id.group('robot')!r}, "
+                f"not this visit's robot {lv.robot_ref!r}"
+            )
+            continue
+        if did not in seen_ids_by_robot.get(lv.robot_ref, frozenset()):
+            errors.append(
+                f"{ctx}: departs_possession_id {did!r} does not name a possession episode ever "
+                f"opened by robot {lv.robot_ref!r}"
+            )
 
 
 def _validate_period_bounds(
@@ -965,6 +1056,44 @@ def _validate_period_bounds(
                 )
 
 
+def _validate_unique_ids(events: tuple, errors: list[str]) -> None:
+    """Every event record id must be unambiguous -- across ALL record types, not
+    just within one -- since `retry_of`, `loader_visit_id`, and `caused_by_action`
+    all resolve against the whole event set. Checked first: a duplicate id makes
+    every later id-based lookup ambiguous."""
+    seen: set[str] = set()
+    dupes: set[str] = set()
+    for e in events:
+        if e.id in seen:
+            dupes.add(e.id)
+        seen.add(e.id)
+    for dup_id in sorted(dupes):
+        errors.append(f"duplicate event record id {dup_id!r} -- record ids must be unique across all types")
+
+
+def _validate_loader_linked_acquire(actions: list[Action], loader_visits: list[LoaderVisit], errors: list[str]) -> None:
+    """A loader-linked `acquire{loader_visit_id: ...}` must agree with its
+    containing LoaderVisit on robot and period -- at minimum (§6 of the M3A
+    corrective pass; full temporal-interval containment is not enforced here)."""
+    loader_visits_by_id = {lv.id: lv for lv in loader_visits}
+    for a in actions:
+        if a.action_type != "acquire" or a.loader_visit_id is None:
+            continue
+        lv = loader_visits_by_id.get(a.loader_visit_id)
+        if lv is None:
+            continue  # already reported as "does not resolve to a LoaderVisit"
+        if lv.robot_ref != a.robot_ref:
+            errors.append(
+                f"action[{a.id!r}]: robot_ref {a.robot_ref!r} does not match loader_visit "
+                f"{lv.id!r}'s robot_ref {lv.robot_ref!r}"
+            )
+        if lv.period != a.period:
+            errors.append(
+                f"action[{a.id!r}]: period {a.period!r} does not match loader_visit {lv.id!r}'s "
+                f"period {lv.period!r}"
+            )
+
+
 def validate_observation_set(
     match: MatchObservation,
     snapshots: tuple[Snapshot, ...],
@@ -976,6 +1105,7 @@ def validate_observation_set(
     warnings: list[str] = []
 
     _validate_match(match, errors)
+    _validate_unique_ids(events, errors)
 
     goal_ids = refs.canonical_goal_ids(rule_bundle)
     toggle_ids = refs.canonical_toggle_ids(rule_bundle)
@@ -998,6 +1128,7 @@ def validate_observation_set(
 
     _validate_retry_chains(actions, errors)
     _validate_no_next_action(actions, match, errors)
+    _validate_loader_linked_acquire(actions, loader_visits, errors)
 
     for lv in loader_visits:
         _validate_loader_visit(lv, robot_refs, regions, errors)
@@ -1017,7 +1148,8 @@ def validate_observation_set(
                     f"resolve to an Action"
                 )
 
-    _validate_possession_episodes(events, match, errors, warnings)
+    seen_ids_by_robot = _validate_possession_episodes(events, match, errors, warnings)
+    _validate_loader_visit_possession_refs(loader_visits, seen_ids_by_robot, errors)
     _validate_period_bounds(events, match, rule_bundle, warnings)
 
     # overlapping actions -- permitted, warned (§E.4)
@@ -1035,6 +1167,73 @@ def validate_observation_set(
     return errors, warnings
 
 
+# --- no_next_action canonicalization (Revision 2.1 §F.2) ---------------------------
+
+
+def canonicalize_no_next_action(events: tuple, match: MatchObservation) -> tuple:
+    """Recompute `gap_after: no_next_action` deterministically from the ordered
+    per-robot, per-period Action list, per §F.2: "is there a next Action" is a data
+    fact, not a labeler judgement, so the labeler must not need to know mid-session
+    which Action will turn out to be terminal.
+
+    Only the chronologically-last cycle-labeled Action of each (robot, period) group
+    is touched -- its `gap_after` is overwritten to `"no_next_action"` regardless of
+    what was authored. Every non-terminal Action's `gap_after` is left completely
+    unchanged; if a non-terminal Action was mislabeled `no_next_action`, that is
+    still surfaced as a validation error by `_validate_no_next_action`, not silently
+    corrected here -- only the genuinely terminal case is a deterministic data fact
+    this function is allowed to fix.
+    """
+    cycle_labeled = {r.robot_ref for r in match.roster if r.cycle_labeled}
+    actions = [e for e in events if isinstance(e, Action)]
+    by_group: dict[tuple[str, str], list[Action]] = {}
+    for a in actions:
+        by_group.setdefault((a.robot_ref, a.period), []).append(a)
+
+    canonical_by_id: dict[str, Action] = {}
+    for (robot_ref, _period), group in by_group.items():
+        if robot_ref not in cycle_labeled:
+            continue
+        ordered = sorted(group, key=lambda a: a.video_t_start)
+        terminal = ordered[-1]
+        if terminal.gap_after != "no_next_action":
+            canonical_by_id[terminal.id] = _dc_replace(terminal, gap_after="no_next_action")
+
+    if not canonical_by_id:
+        return events
+    return tuple(canonical_by_id.get(e.id, e) if isinstance(e, Action) else e for e in events)
+
+
+# --- CSV provenance -------------------------------------------------------------------
+
+
+def validate_csv_provenance(path: Path, match: MatchObservation, errors: list[str]) -> None:
+    """Cross-check `match.labeling.source_csv_sha256` against the committed
+    `events.source.csv` sitting alongside it in `path` (§K.2, §R.2). Detects the
+    three inconsistent states: a CSV whose bytes no longer match the stored hash, a
+    committed CSV with no hash stamped at all, and a stamped hash with no CSV to
+    verify it against."""
+    csv_path = path / "events.source.csv"
+    stored = match.labeling.source_csv_sha256
+    csv_exists = csv_path.is_file()
+
+    if csv_exists and stored is None:
+        errors.append(
+            "match.labeling.source_csv_sha256 is missing but events.source.csv is present -- "
+            "stamp it by running the CSV importer (from_csv.import_match_from_csv)"
+        )
+    elif stored is not None and not csv_exists:
+        errors.append(
+            f"match.labeling.source_csv_sha256={stored!r} is set but no events.source.csv is "
+            f"present at {csv_path} to verify it against"
+        )
+    elif csv_exists and stored is not None:
+        try:
+            verify_csv_sha256(csv_path, stored)
+        except HashMismatchError as exc:
+            errors.append(str(exc))
+
+
 # --- top-level API -----------------------------------------------------------------
 
 
@@ -1042,7 +1241,8 @@ def load_match_observation(path: Path, *, rule_bundle: RuleBundle) -> LoadedMatc
     """Load and validate one match directory (match.yaml + snapshots.yaml + events.yaml).
 
     Raises ObservationValidationError (with every error found, not just the first) if
-    the match fails validation.
+    the match fails validation. Also checks `events.source.csv` provenance (see
+    `validate_csv_provenance`) when a CSV and/or a stamped hash is present.
     """
     match_path = path / "match.yaml"
     snapshots_path = path / "snapshots.yaml"
@@ -1056,6 +1256,7 @@ def load_match_observation(path: Path, *, rule_bundle: RuleBundle) -> LoadedMatc
         events = tuple(parse_event(e) for e in (yaml.safe_load(f) or []))
 
     errors, warnings = validate_observation_set(match, snapshots, events, rule_bundle)
+    validate_csv_provenance(path, match, errors)
     if errors:
         raise ObservationValidationError(
             f"{path}: {len(errors)} validation error(s):\n  - " + "\n  - ".join(errors)

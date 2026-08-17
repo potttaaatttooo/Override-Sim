@@ -45,6 +45,21 @@ M4's job.
   and the loader enforces the distinction: a REQ field may never be `null` when its
   condition holds, and a field marked "REQ-IF absent otherwise" must genuinely be
   absent (not `unknown`) when the condition does not hold.
+- **`REQ` also means the *key* must be present, even when `null` is itself the
+  legal value.** A handful of fields are REQ but legitimately `null`:
+  `LoaderVisit.video_t_exit`/`departs_possession_id`, `MidfieldOccupancy.
+  video_t_exit`, `Incident.video_t_end`, `Action.retry_of`, and
+  `StateChange.attributed_to`, plus two REQ list/collection fields where an empty
+  collection is itself a real observed fact rather than an omission --
+  `Coverage.unlabeled_windows` and `GoalSnapshot.stack`. For every one of these, the
+  loader (`loader.py`'s parsers) distinguishes "the key is present with value
+  `null`/`[]`" from "the key is absent entirely" and rejects the latter as a
+  structural authoring error -- an omitted key is never silently treated as if the
+  author had written the legal `null`/empty value. `events.source.csv` cannot spell
+  "explicit null" differently from "blank cell," so for exactly these
+  (`record_type`, field) pairs a blank CSV cell is interpreted as the legal null
+  value rather than dropped as not-applicable -- see `08-labeling-protocol.md`'s
+  "Cell conventions."
 
 ## Record families
 
@@ -118,10 +133,19 @@ otherwise the field must be absent. "Next Action" is defined deterministically a
 the next Action **for the same robot, in the same period**, ordered by
 `video_t_start` -- a `loader_visit` is never itself a "next Action" for this
 purpose, since it is not an Action. `no_next_action` means no later Action exists
-for that robot in that period; `loader.py` recomputes this fact from the ordered
-per-robot, per-period Action list at load time (it is a data fact, not a labeler
-judgement) and rejects a manually entered value that disagrees. **Only
-`gap_after == "transit"` intervals are eligible as future M5 travel-time samples.**
+for that robot in that period. Two pieces of machinery cooperate:
+`loader.canonicalize_no_next_action` **recomputes and overwrites** the
+chronologically-last cycle-labeled Action of each (robot, period) group to
+`"no_next_action"` -- run automatically by the CSV import path
+(`from_csv.import_events_csv`/`import_match_from_csv`) before validation, so a
+labeler never has to know mid-session which Action will turn out to be terminal,
+and every non-terminal Action's `gap_after` is left untouched. `loader.
+_validate_no_next_action` then **validates** (never silently corrects) that every
+terminal Action says `"no_next_action"` and no non-terminal one does -- this is
+what a hand-authored `events.yaml` (already canonical, produced by the importer) is
+checked against on every load via `load_match_observation`, and what rejects a
+non-terminal Action mislabeled `"no_next_action"`. **Only `gap_after == "transit"`
+intervals are eligible as future M5 travel-time samples.**
 
 ## Possession episodes
 
@@ -157,6 +181,16 @@ Two specific cases are **warnings**, not errors, because they may be a genuine
 `<SG6>` violation the labeler correctly observed rather than a labeling mistake:
 acquiring an object type already held in the open episode, and a `place` whose
 `object` is not present in the currently open episode's held set.
+
+**Id integrity**, enforced whenever an episode opens (an `acquire` while the robot
+holds nothing): the id must match `<robot_ref>#<n>` exactly, `n` must be a positive
+integer, `robot_ref` must equal the acting robot (an id cannot be opened for a
+*different* robot), and `n` must be strictly greater than every suffix that robot
+has ever used before -- episode numbers move monotonically forward and a closed
+episode's id can never be reused for a new one. `LoaderVisit.departs_possession_id`,
+when it names a concrete id (not `null`/`unknown`), is checked the same way: the
+robot-id prefix must match the visit's own `robot_ref`, and the id must actually
+have been opened by that robot at some point in the match.
 
 `possession_contents`, `possession_duration`, and `cycle_time` are **DER**, never
 stored.
@@ -321,25 +355,38 @@ side effect back to the Action that produced it.
 - `program` never `both` (delegates to `vexu_sim.sources.validate_empirical_program`).
 - `v5rc` robots are always `unknown_v5rc`; `vexu` robots are `vexu_24`/`vexu_15`.
 - Every enum field checked against its closed vocabulary in `models.py`.
-- Every REQ key present; every REQ-IF condition checked in both directions.
+- Every REQ key present (including the REQ-but-legally-`null` fields listed above --
+  a missing key is rejected even where `null` itself is the legal value); every
+  REQ-IF condition checked in both directions.
+- Every event record id is unique **across all record types**, checked first (a
+  duplicate id would make every later `retry_of`/`loader_visit_id`/
+  `caused_by_action` resolution ambiguous).
 - Action `video_t_end` numeric or `"unknown"`, never `null`; `video_t_end >
   video_t_start` when both numeric.
 - `robot_ref`, `retry_of`, `caused_by_action`, `loader_visit_id`,
   `contested_robot_ref`, `actor_robot_ref`/`subject_robot_ref` all resolve;
   `retry_of` chains are acyclic; `loader_visit_id` resolves to a `LoaderVisit`, not
-  an Action.
+  an Action; a loader-linked `acquire` must agree with its `LoaderVisit` on
+  `robot_ref` and `period`.
 - `target_goal_ref`/`toggle_ref` are canonical ids from `field_setup` (via
   `refs.py`); `loader_ref`/`region` are from the declared M3-local vocabulary.
 - Both snapshots present, each containing every canonical Goal/Toggle and every
   rostered robot.
 - `gap_after` present iff the robot is `cycle_labeled`; `no_next_action`
-  recomputed deterministically from chronological Action order and any
-  disagreeing manually-entered value rejected.
-- Possession episodes per-robot, non-interleaved; duplicate-type acquisition and
-  `place.object` inconsistency are warnings, not errors; other interleaving is an
-  error.
+  recomputed deterministically at CSV-import time and, on every load, validated
+  against chronological Action order -- see "`gap_after`" above.
+- Possession episodes per-robot, non-interleaved, with id-format/ownership/
+  monotonic integrity enforced (see "Possession episodes" above);
+  `LoaderVisit.departs_possession_id` cross-checked against the referenced robot's
+  actually-opened episodes. Duplicate-type acquisition and `place.object`
+  inconsistency are warnings, not errors; other interleaving/id-integrity failures
+  are errors.
 - Event timestamps checked against `RuleBundle.period_seconds()` (a warning, not an
   error, given video timing imprecision).
+- `events.source.csv` provenance, when loading a match directory
+  (`load_match_observation`/`validate_csv_provenance`): a committed CSV whose bytes
+  no longer match the stamped `source_csv_sha256`, a committed CSV with no hash
+  stamped, and a stamped hash with no CSV to verify it against are all errors.
 - Overlapping actions, a still-open possession episode at match end, and an event
   inside an `unlabeled_window` are warnings, surfaced in the QC report, never
   errors.
@@ -350,18 +397,27 @@ boundary belongs to `vexu_sim.scoring`, consumed only from M4 onward.
 ## Reconciliation inputs (see `docs/plans/m3-observation-plan.md` §H.2 for the full
 design; implemented in `observations/reconcile.py`)
 
-Three required channels, run only at the `match_end` snapshot:
+Three required channels. Goal depth and Toggle orientation are evaluated only at
+`match_end` (the score-anchor instant); Midfield occupancy is evaluated at **both**
+snapshot instants, since `<VUG5>` makes Midfield occupancy score-relevant at the
+Autonomous boundary for VEX U too:
 
 1. **Goal net depth**: `predicted_depth(G) = starting_depth(G) + Σ(after − before)`
    over every `place`/`descore`/goal-affecting `StateChange` touching `G`, compared
-   to the snapshot's physical stack length. Any contributing record with a
-   non-numeric endpoint makes the channel `indeterminate` for that Goal.
+   to the `match_end` snapshot's physical stack length. Any contributing record
+   with a non-numeric endpoint makes the channel `indeterminate` for that Goal.
 2. **Toggle final orientation**: the last labeled `state_after` (from `toggle`
    Actions and toggle-affecting `StateChange`s, or the starting orientation if none)
-   compared against the snapshot's `orientation` -- never effective color.
+   compared against the `match_end` snapshot's `orientation` -- never effective
+   color.
 3. **Midfield occupancy**: whether a `MidfieldOccupancy` episode is open at the
    `autonomous_end`/`match_end` instant, compared against
-   `snapshot.robots[ref].in_midfield`.
+   `snapshot.robots[ref].in_midfield`. A `MidfieldOccupancy` record's own `period`
+   bounds which snapshot it can cover: an autonomous-period episode with a `null`
+   (still-open) exit closes at the autonomous/driver boundary and is never treated
+   as covering `match_end`, and symmetrically a driver-period episode never covers
+   `autonomous_end` -- occupancy records are matched to a snapshot by `period`, not
+   by comparing absolute video timestamps alone.
 
 One OPTIONAL best-effort channel: **Goal composition** -- the starting
 type composition plus every determinate `object`-tagged net addition/removal,

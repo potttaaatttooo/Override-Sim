@@ -170,21 +170,34 @@ def reconcile_toggle_orientation(
     return results
 
 
+# A MidfieldOccupancy record's `video_t_exit: null` means "still open at the end of
+# THAT RECORD'S OWN PERIOD" -- not open forever into a later period (§C.6). An
+# autonomous-period episode can therefore only ever cover the autonomous_end
+# instant, and a driver-period episode can only ever cover the match_end instant.
+_SNAPSHOT_CONTEXT_TO_PERIOD = {"autonomous_end": "autonomous", "match_end": "driver"}
+
+
 def reconcile_midfield_occupancy(
     match: MatchObservation, snapshots: tuple[Snapshot, ...], events: tuple
 ) -> dict[str, ChannelResult]:
     """Channel 3: which robots have a `midfield_occupancy` episode open at the
-    `autonomous_end` / `match_end` instant, versus `snapshot.robots[ref].in_midfield`."""
+    `autonomous_end` / `match_end` instant, versus `snapshot.robots[ref].in_midfield`.
+    Occupancy records are matched by their own `period` against the snapshot's
+    corresponding period -- an autonomous-period episode with a null (still-open)
+    exit is bounded by the autonomous/driver boundary, never carried into match_end."""
     occupancies = [e for e in events if isinstance(e, MidfieldOccupancy)]
     results: dict[str, ChannelResult] = {}
     for snap in snapshots:
+        snapshot_period = _SNAPSHOT_CONTEXT_TO_PERIOD.get(snap.context)
         for r in match.roster:
             key = f"{r.robot_ref}@{snap.context}"
             actual = snap.robots[r.robot_ref].in_midfield if r.robot_ref in snap.robots else None
             if actual is None or actual == UNKNOWN:
                 results[key] = ChannelResult("indeterminate", f"snapshot in_midfield={actual!r}")
                 continue
-            episodes = [o for o in occupancies if o.robot_ref == r.robot_ref]
+            episodes = [
+                o for o in occupancies if o.robot_ref == r.robot_ref and o.period == snapshot_period
+            ]
             covered = False
             indeterminate_reason = None
             for o in episodes:

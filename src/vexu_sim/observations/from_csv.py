@@ -13,6 +13,10 @@ Contract (docs/plans/m3-observation-plan.md §K.2, §P):
   silently diverge in what they accept.
 - never silently coerces a malformed value: an unparseable number/boolean is a hard
   error, not a best-effort guess.
+- recomputes `gap_after: no_next_action` deterministically (§F.2) rather than
+  trusting the sheet -- see `loader.canonicalize_no_next_action`.
+- computes and stamps `match.labeling.source_csv_sha256` (§R.2) via
+  `import_match_from_csv`, the one safe high-level import path.
 
 Column order (documented verbatim in docs/design/08-labeling-protocol.md) is fixed at
 `CSV_COLUMNS` below -- one CSV, one `record_type` column, not one sheet per type.
@@ -21,17 +25,27 @@ Column order (documented verbatim in docs/design/08-labeling-protocol.md) is fix
 from __future__ import annotations
 
 import csv
-import hashlib
+import re
+from dataclasses import asdict, replace as _dc_replace
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from dataclasses import asdict
 
 from vexu_sim.rules import RuleBundle
 
-from .loader import ObservationValidationError, parse_event, validate_observation_set
-from .models import UNKNOWN, MatchObservation, Snapshot
+from .hashing import HashMismatchError
+from .hashing import compute_csv_sha256 as _compute_csv_sha256
+from .hashing import verify_csv_sha256 as _hash_verify_csv_sha256
+from .loader import (
+    ObservationValidationError,
+    canonicalize_no_next_action,
+    parse_event,
+    parse_match,
+    parse_snapshot,
+    validate_observation_set,
+)
+from .models import UNKNOWN, LoadedMatch, MatchObservation, Snapshot
 
 # One CSV, one record_type column, per §K.2. Fields with the same name are
 # deliberately shared across record types where the plan's own field tables reuse a
@@ -66,6 +80,23 @@ BOOL_FIELDS = frozenset(
 )
 LIST_FIELDS = frozenset({"object_colors", "objects_types"})
 
+# Fields that are REQUIRED for a given record_type but legally `null` (§07-
+# observation-schema.md's REQ-vs-null distinction): a CSV cell has no way to spell
+# "explicit null" differently from "blank/not applicable", so for exactly these
+# (record_type, field) pairs a blank cell is interpreted as an explicit null rather
+# than an absent key -- every other blank cell means "not applicable" and is
+# dropped, matching REQ-IF absence. `video_t_end`/`video_t_exit` are shared column
+# names across record types with different rules (Action's `video_t_end` must
+# never be null -- a blank there should stay absent, surfacing a clear "missing
+# required key" error), so this is keyed by record_type, not by column alone.
+REQ_NULLABLE_FIELDS_BY_RECORD_TYPE: dict[str, frozenset[str]] = {
+    "action": frozenset({"retry_of"}),
+    "loader_visit": frozenset({"video_t_exit", "departs_possession_id"}),
+    "midfield_occupancy": frozenset({"video_t_exit"}),
+    "incident": frozenset({"video_t_end"}),
+    "state_change": frozenset({"attributed_to"}),
+}
+
 
 def _coerce_cell(field_name: str, raw: Optional[str]) -> Any:
     if raw is None:
@@ -97,19 +128,30 @@ def _coerce_cell(field_name: str, raw: Optional[str]) -> Any:
 
 
 def _coerce_row(row: dict[str, Optional[str]], row_number: int) -> dict[str, Any]:
+    record_type = (row.get("record_type") or "").strip()
+    retain_as_null = REQ_NULLABLE_FIELDS_BY_RECORD_TYPE.get(record_type, frozenset())
     coerced: dict[str, Any] = {}
     for field_name in CSV_COLUMNS:
         try:
             value = _coerce_cell(field_name, row.get(field_name))
         except ObservationValidationError as exc:
             raise ObservationValidationError(f"row {row_number}: {exc}") from exc
-        if value is not None:
+        if value is not None or field_name in retain_as_null:
             coerced[field_name] = value
     return coerced
 
 
 def compute_csv_sha256(csv_path: Path) -> str:
-    return hashlib.sha256(csv_path.read_bytes()).hexdigest()
+    return _compute_csv_sha256(csv_path)
+
+
+def verify_csv_sha256(csv_path: Path, expected: Optional[str]) -> None:
+    """Re-hash the committed CSV and compare against `match.labeling.source_csv_sha256`
+    -- a mismatch is a validation error, not a warning (§R.2)."""
+    try:
+        _hash_verify_csv_sha256(csv_path, expected)
+    except HashMismatchError as exc:
+        raise ObservationValidationError(str(exc)) from exc
 
 
 def read_events_csv(csv_path: Path) -> list[Any]:
@@ -143,11 +185,14 @@ def import_events_csv(
     snapshots: tuple[Snapshot, ...],
     rule_bundle: RuleBundle,
 ) -> tuple[tuple[Any, ...], tuple[str, ...], str]:
-    """Parse and fully validate events.source.csv against `match`/`snapshots`/
-    `rule_bundle`. Returns (events, warnings, source_csv_sha256). Raises
-    ObservationValidationError -- refusing to produce anything an emitter could write
-    -- if any row is malformed or the resulting event set fails validation."""
+    """Parse, canonicalize, and fully validate events.source.csv against
+    `match`/`snapshots`/`rule_bundle`. Returns (events, warnings, source_csv_sha256).
+    Raises ObservationValidationError -- refusing to produce anything an emitter
+    could write -- if any row is malformed or the resulting event set fails
+    validation. `gap_after: no_next_action` is recomputed deterministically before
+    validation runs (§F.2) -- see `loader.canonicalize_no_next_action`."""
     events = tuple(read_events_csv(csv_path))
+    events = canonicalize_no_next_action(events, match)
     errors, warnings = validate_observation_set(match, snapshots, events, rule_bundle)
     if errors:
         raise ObservationValidationError(
@@ -156,18 +201,6 @@ def import_events_csv(
         )
     sha256 = compute_csv_sha256(csv_path)
     return events, tuple(warnings), sha256
-
-
-def verify_csv_sha256(csv_path: Path, expected: Optional[str]) -> None:
-    """Re-hash the committed CSV and compare against `match.labeling.source_csv_sha256`
-    -- a mismatch is a validation error, not a warning (§R.2)."""
-    if expected is None:
-        return
-    actual = compute_csv_sha256(csv_path)
-    if actual != expected:
-        raise ObservationValidationError(
-            f"{csv_path}: source_csv_sha256 mismatch -- expected {expected}, computed {actual}"
-        )
 
 
 def events_to_yaml_docs(events: tuple[Any, ...]) -> list[dict[str, Any]]:
@@ -183,3 +216,69 @@ def write_events_yaml(events: tuple[Any, ...], output_path: Path) -> None:
     docs = events_to_yaml_docs(events)
     text = yaml.safe_dump(docs, sort_keys=False, default_flow_style=False, allow_unicode=True)
     output_path.write_text(text, encoding="utf-8", newline="\n")
+
+
+# --- one safe high-level import path (§ "Complete CSV provenance workflow") ----------
+
+_SHA256_VALUE_PATTERN = re.compile(
+    r'(source_csv_sha256:\s*)(null|~|"[0-9a-f]{64}"|\'[0-9a-f]{64}\'|[0-9a-f]{64})'
+)
+
+
+def _stamp_source_csv_sha256(match_yaml_text: str, sha256: str) -> str:
+    """Rewrite `labeling.source_csv_sha256`'s value in `match_yaml_text` to `sha256`,
+    leaving every other byte of the hand-authored file untouched. Raises
+    ObservationValidationError if the key can't be found -- match.yaml must declare
+    the key explicitly (even as `null`) rather than have it synthesized."""
+    new_text, count = _SHA256_VALUE_PATTERN.subn(rf'\g<1>"{sha256}"', match_yaml_text, count=1)
+    if count == 0:
+        raise ObservationValidationError(
+            "match.yaml: could not find a 'source_csv_sha256:' key to stamp -- it must be "
+            "declared explicitly (e.g. 'source_csv_sha256: null') before import"
+        )
+    return new_text
+
+
+def import_match_from_csv(match_dir: Path, *, rule_bundle: RuleBundle) -> LoadedMatch:
+    """The one safe high-level import path (§R.2): read `match.yaml` + `snapshots.yaml`
+    + `events.source.csv` from `match_dir`, canonicalize/validate the complete
+    observation set, refuse on any error, then -- only once everything is known
+    good -- write the deterministic `events.yaml` and stamp/verify
+    `match.labeling.source_csv_sha256` in `match.yaml`.
+
+    - If `source_csv_sha256` is already stamped and matches the committed CSV,
+      `match.yaml` is left untouched.
+    - If it is already stamped and does NOT match, this raises
+      ObservationValidationError and writes nothing at all (events.yaml included).
+    - If it is unset (`null`), this rewrites just that one value in `match.yaml`
+      (byte-identical everywhere else) once validation has already passed.
+    """
+    match_path = match_dir / "match.yaml"
+    snapshots_path = match_dir / "snapshots.yaml"
+    csv_path = match_dir / "events.source.csv"
+    events_path = match_dir / "events.yaml"
+
+    match_yaml_text = match_path.read_text(encoding="utf-8")
+    match = parse_match(yaml.safe_load(match_yaml_text))
+    snapshots = tuple(parse_snapshot(s) for s in (yaml.safe_load(snapshots_path.read_text(encoding="utf-8")) or []))
+
+    events, warnings, computed_sha256 = import_events_csv(
+        csv_path, match=match, snapshots=snapshots, rule_bundle=rule_bundle
+    )
+
+    # Provenance: a previously-stamped hash must still match this CSV. (A missing
+    # hash is fine here -- that's exactly the "not yet stamped" case this function
+    # exists to fix; validate_csv_provenance would otherwise flag it as an error for
+    # the *read* path, but stamping it is precisely this function's job.)
+    stored_sha256 = match.labeling.source_csv_sha256
+    if stored_sha256 is not None:
+        verify_csv_sha256(csv_path, stored_sha256)
+
+    write_events_yaml(events, events_path)
+
+    if stored_sha256 != computed_sha256:
+        new_text = _stamp_source_csv_sha256(match_yaml_text, computed_sha256)
+        match_path.write_text(new_text, encoding="utf-8")
+        match = _dc_replace(match, labeling=_dc_replace(match.labeling, source_csv_sha256=computed_sha256))
+
+    return LoadedMatch(match=match, snapshots=snapshots, events=events, warnings=warnings)

@@ -51,4 +51,4 @@ labeling:
   pass_id: 1
   selection_stratum: baseline_clean
   minutes_spent: 0
-  source_csv_sha256: null
+  source_csv_sha256: "977b6b3c4f91854a0752270c776e030f23428503c3e77e3ae95e77841dd7eb21"
